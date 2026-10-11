@@ -77,87 +77,21 @@ function draw() {
   drawMantis(player.x, player.y, frame, !player.onGround);
 }
 
-// 楕円を回転つきで塗る小さな道具
-function ellipse(cx, cy, rx, ry, rot, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-// 線を引く小さな道具
-function line(x1, y1, x2, y2, width, color) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.stroke();
-}
+// 画像を読みこむ
+const mantisImg = new Image();
+mantisImg.src = 'images/mantis.png';
 
 // カマキリ（右向き）。px, py は当たり判定の左上。t は動きの時間、air はジャンプ中
+// 絵は左向きなので、左右を反転して描く。足もとを当たり判定の下にそろえる
 function drawMantis(px, py, t, air) {
+  if (!mantisImg.complete || mantisImg.naturalWidth === 0) return;
+  const dw = 64;
+  const dh = dw * mantisImg.naturalHeight / mantisImg.naturalWidth;
+  const bob = air ? 0 : Math.abs(Math.sin(t * 0.15)) * -3;   // 走るときの上下ゆれ
   ctx.save();
-  ctx.translate(px, py);
-  const dark = '#558b2f';
-  const swing = air ? 0 : Math.sin(t * 0.3) * 5;
-
-  // 後ろ足（走るときは交互に動く／ジャンプ中は広げる）
-  if (air) {
-    line(16, 34, 4, 46, 3, dark);
-    line(24, 36, 22, 50, 3, dark);
-    line(32, 36, 42, 46, 3, dark);
-  } else {
-    line(16, 34, 10 + swing, 50, 3, dark);
-    line(24, 36, 24 - swing, 50, 3, dark);
-    line(32, 36, 34 + swing, 50, 3, dark);
-  }
-
-  // おなか（うしろの長い部分）と、はね
-  ellipse(14, 28, 17, 9, -0.35, '#7cb342');
-  ellipse(14, 24, 16, 6, -0.35, '#c5e1a5');
-
-  // むね
-  ellipse(30, 26, 8, 12, 0.3, '#7cb342');
-
-  // かま（前足）：ふだんはたたむ／ジャンプ中は上にあげる
-  if (air) {
-    line(34, 24, 48, 14, 4, dark);
-    line(48, 14, 54, 24, 3, dark);
-  } else {
-    line(34, 24, 46, 28, 4, dark);
-    line(46, 28, 40, 37, 3, dark);
-  }
-
-  // 頭（三角形に近い、まるい顔）
-  ellipse(38, 12, 10, 8, 0, '#8bc34a');
-  ctx.fillStyle = '#8bc34a';
-  ctx.beginPath();
-  ctx.moveTo(30, 15);
-  ctx.lineTo(46, 15);
-  ctx.lineTo(38, 24);
-  ctx.closePath();
-  ctx.fill();
-
-  // しょっかく
-  line(35, 5, 29, -3, 2, dark);
-  line(41, 5, 47, -3, 2, dark);
-
-  // 大きな目
-  for (const ex of [33.5, 42.5]) {
-    ellipse(ex, 11, 4.5, 5.5, 0, '#ffffff');
-    ellipse(ex + 1, 11.5, 2.6, 3.4, 0, '#222222');
-    ellipse(ex + 1.8, 10, 1, 1, 0, '#ffffff');
-  }
-
-  // 口（にこっ）
-  ctx.strokeStyle = dark;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(39, 17, 3, 0.2, Math.PI - 0.2);
-  ctx.stroke();
-
+  ctx.translate(px + player.w / 2, py + player.h + bob);
+  ctx.scale(-1, 1);
+  ctx.drawImage(mantisImg, -dw / 2, -dh, dw, dh);
   ctx.restore();
 }
 
