@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>カマキリの草むらぼうけん</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #2e7d32; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #rotate {
+    display: none; position: fixed; inset: 0; background: #1b5e20; color: #fff;
+    font-family: sans-serif; font-size: 8vw; align-items: center; justify-content: center;
+  }
+  @media (orientation: portrait) { #rotate { display: flex; } }
+</style>
+</head>
+<body>
+<canvas id="game" width="800" height="450"></canvas>
+<div id="rotate">よこにしてね</div>
+<script>
+// ===== 仮の数値（遊んでから調整する）=====
+const SPEED = 3;          // 右へ進む速さ
+const GRAVITY = 0.6;      // 重力
+const JUMP_POWER = 13;    // ジャンプの強さ
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const GROUND_Y = 360;     // 地面の高さ
+
+// カマキリ（仮の図形）
+const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true };
+let scrollX = 0;          // 画面のスクロール量
+
+// ジャンプ（スペース or ↑）
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    e.preventDefault();
+    if (player.onGround) {
+      player.vy = -JUMP_POWER;
+      player.onGround = false;
+    }
+  }
+});
+
+function update() {
+  scrollX += SPEED;
+  player.vy += GRAVITY;
+  player.y += player.vy;
+  if (player.y >= GROUND_Y - player.h) {
+    player.y = GROUND_Y - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  }
+}
+
+function draw() {
+  // 空と背景
+  ctx.fillStyle = '#bfe8ff';
+  ctx.fillRect(0, 0, W, H);
+  // 地面
+  ctx.fillStyle = '#4caf50';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  // 草（スクロールして見える）
+  ctx.fillStyle = '#2e7d32';
+  const gap = 40;
+  const offset = scrollX % gap;
+  for (let x = -offset; x < W + gap; x += gap) {
+    ctx.beginPath();
+    ctx.moveTo(x, GROUND_Y);
+    ctx.lineTo(x + 10, GROUND_Y - 25);
+    ctx.lineTo(x + 20, GROUND_Y);
+    ctx.fill();
+  }
+  // カマキリ（仮：緑の四角＋目）
+  ctx.fillStyle = '#7cb342';
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(player.x + 32, player.y + 10, 10, 10);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(player.x + 36, player.y + 13, 4, 4);
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
