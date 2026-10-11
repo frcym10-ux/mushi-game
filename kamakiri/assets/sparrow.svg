@@ -1,13 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke-linejoin="round" stroke-linecap="round" fill="none">
+    <!-- あし（外線→中身の順） -->
+    <path d="M92 158 L92 176 L82 176" stroke="#333" stroke-width="12"/>
+    <path d="M112 158 L112 176 L102 176" stroke="#333" stroke-width="12"/>
+    <path d="M92 158 L92 176 L82 176" stroke="#FFB74D" stroke-width="5"/>
+    <path d="M112 158 L112 176 L102 176" stroke="#FFB74D" stroke-width="5"/>
+  </g>
   <g stroke="#333" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M96 150 L92 174 L84 174 M92 174 L100 174 M112 150 L112 174 L104 174 M112 174 L120 174" fill="none" stroke-width="4"/>
-    <path d="M64 124 L36 140 L50 144 L70 132 Z" fill="#8D5B3A"/>
-    <ellipse cx="100" cy="120" rx="46" ry="34" fill="#C58A5A"/>
-    <ellipse cx="108" cy="134" rx="28" ry="18" fill="#F5E6C8" stroke="none"/>
-    <path d="M70 112 Q90 98 118 112 Q102 130 70 128 Z" fill="#8D5B3A"/>
-    <circle cx="140" cy="88" r="24" fill="#C58A5A"/>
-    <path d="M160 88 L176 94 L160 98 Z" fill="#FFB74D"/>
-    <circle cx="144" cy="96" r="6" fill="#333" stroke="none"/>
-    <circle cx="148" cy="82" r="5" fill="#333" stroke="none"/>
+    <!-- おび -->
+    <path d="M58 118 L22 138 L34 146 L66 134 Z" fill="#8D5B3A"/>
+    <!-- からだ -->
+    <ellipse cx="100" cy="118" rx="50" ry="40" fill="#C58A5A"/>
+    <ellipse cx="108" cy="134" rx="30" ry="22" fill="#F5E6C8" stroke="none"/>
+    <!-- つばさ -->
+    <path d="M62 108 Q86 90 118 106 Q104 138 62 128 Z" fill="#8D5B3A"/>
+    <path d="M78 110 L86 122 M94 108 L100 122" fill="none" stroke="#F5E6C8" stroke-width="3"/>
+    <!-- あたま -->
+    <circle cx="142" cy="86" r="28" fill="#C58A5A"/>
+    <path d="M164 84 L192 94 L164 104 Z" fill="#FFB74D"/>
+    <path d="M150 104 Q156 112 162 104" fill="#333" stroke-width="3"/>
+    <circle cx="150" cy="86" r="11" fill="#fff" stroke-width="4"/>
+    <circle cx="153" cy="88" r="6" fill="#333" stroke="none"/>
+    <circle cx="155" cy="85" r="2.2" fill="#fff" stroke="none"/>
+    <!-- おこりまゆ -->
+    <path d="M136 70 L162 80" fill="none" stroke-width="6"/>
   </g>
 </svg>

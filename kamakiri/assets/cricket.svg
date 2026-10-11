@@ -1,11 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke-linejoin="round" stroke-linecap="round" fill="none">
+    <!-- あし（外線→中身の順） -->
+    <path d="M118 140 L120 176 L130 176" stroke="#333" stroke-width="13"/>
+    <path d="M136 138 L144 176 L154 176" stroke="#333" stroke-width="13"/>
+    <path d="M62 112 L44 176 L32 176" stroke="#333" stroke-width="13"/>
+    <path d="M118 140 L120 176 L130 176" stroke="#6D4C41" stroke-width="7"/>
+    <path d="M136 138 L144 176 L154 176" stroke="#6D4C41" stroke-width="7"/>
+    <path d="M62 112 L44 176 L32 176" stroke="#6D4C41" stroke-width="7"/>
+    <!-- しっぽ -->
+    <path d="M58 128 L32 134 M58 122 L34 118" stroke="#333" stroke-width="3.5"/>
+  </g>
   <g stroke="#333" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M92 140 L80 172 L72 172 M112 144 L118 174 M128 140 L138 170" fill="none" stroke-width="4"/>
-    <path d="M152 90 Q178 40 196 30 M156 88 Q184 56 192 46" fill="none" stroke-width="3"/>
-    <ellipse cx="104" cy="122" rx="40" ry="26" fill="#A1887F"/>
-    <path d="M70 110 Q104 100 130 112" fill="none" stroke-width="4"/>
-    <circle cx="144" cy="104" r="18" fill="#8D6E63"/>
-    <circle cx="152" cy="98" r="6" fill="#fff"/>
-    <circle cx="153" cy="98" r="3" fill="#333" stroke="none"/>
+    <!-- からだ -->
+    <ellipse cx="100" cy="124" rx="44" ry="30" fill="#8D6E63"/>
+    <path d="M58 118 Q96 84 142 112 Q104 132 58 118 Z" fill="#5D4037" stroke-width="3"/>
+    <path d="M72 116 Q98 100 126 114" fill="none" stroke="#8D6E63" stroke-width="3"/>
+    <!-- うしろあし -->
+    <path d="M96 128 L62 112" stroke="#333" stroke-width="26" fill="none"/>
+    <path d="M96 128 L62 112" stroke="#795548" stroke-width="16" fill="none"/>
+    <!-- あたま -->
+    <path d="M142 82 Q134 48 102 32" fill="none" stroke-width="3.5"/>
+    <path d="M156 80 Q168 48 190 40" fill="none" stroke-width="3.5"/>
+    <circle cx="148" cy="106" r="28" fill="#A1887F"/>
+    <circle cx="156" cy="100" r="14" fill="#fff" stroke-width="4"/>
+    <circle cx="160" cy="101" r="8" fill="#333" stroke="none"/>
+    <circle cx="163" cy="97" r="3" fill="#fff" stroke="none"/>
+    <path d="M150 121 Q159 127 167 119" fill="none" stroke-width="3.5"/>
+    <circle cx="140" cy="115" r="5.5" fill="#F8BBD0" stroke="none" opacity="0.9"/>
   </g>
 </svg>

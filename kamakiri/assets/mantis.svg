@@ -1,14 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <g stroke-linejoin="round" stroke-linecap="round" fill="none">
+    <!-- あし（外線→中身の順） -->
+    <path d="M82 126 Q58 144 58 176 L48 176" stroke="#333" stroke-width="15"/>
+    <path d="M100 130 Q94 156 104 176 L114 176" stroke="#333" stroke-width="15"/>
+    <path d="M82 126 Q58 144 58 176 L48 176" stroke="#7CB342" stroke-width="7"/>
+    <path d="M100 130 Q94 156 104 176 L114 176" stroke="#7CB342" stroke-width="7"/>
+  </g>
   <g stroke="#333" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M70 135 L55 172 L44 172" fill="none"/>
-    <path d="M85 138 L80 176 L69 176" fill="none"/>
-    <path d="M105 140 L110 176 L121 176" fill="none"/>
-    <ellipse cx="62" cy="122" rx="30" ry="18" fill="#9CCC65"/>
-    <ellipse cx="108" cy="112" rx="26" ry="20" fill="#AED581"/>
-    <path d="M136 72 Q140 50 158 44 M142 72 Q150 54 168 52" fill="none" stroke-width="3"/>
-    <circle cx="142" cy="92" r="22" fill="#AED581"/>
-    <path d="M118 112 L138 76 L168 66 Q174 84 158 96 L142 86 L126 118 Z" fill="#C5E1A5"/>
-    <circle cx="149" cy="86" r="8" fill="#fff"/>
-    <circle cx="151" cy="86" r="4" fill="#333" stroke="none"/>
+    <!-- おなか（はね） -->
+    <path d="M122 112 Q94 86 44 94 Q18 100 8 118 Q38 142 92 136 Q122 132 122 112 Z" fill="#9CCC65"/>
+    <path d="M114 108 Q86 94 40 102 Q62 122 110 122 Z" fill="#DCEDC8" stroke-width="3"/>
+    <path d="M108 112 Q78 106 50 106" fill="none" stroke-width="3"/>
+    <!-- くび -->
+    <path d="M110 112 L136 84" stroke="#333" stroke-width="32" fill="none"/>
+    <path d="M110 112 L136 84" stroke="#AED581" stroke-width="22" fill="none"/>
+    <!-- 奥のかま -->
+    <path transform="translate(-10 10)" d="M118 110 C124 148 184 152 196 100 C180 128 146 130 118 110 Z" fill="#9CCC65"/>
+    <!-- あたま -->
+    <path d="M120 58 Q146 34 178 52 Q184 80 158 98 Q126 92 120 58 Z" fill="#AED581"/>
+    <path d="M136 44 Q130 24 116 18 M152 40 Q156 20 172 12" fill="none" stroke-width="3.5"/>
+    <circle cx="116" cy="18" r="3.5" fill="#333"/>
+    <circle cx="172" cy="12" r="3.5" fill="#333"/>
+    <circle cx="158" cy="66" r="15" fill="#fff" stroke-width="4"/>
+    <circle cx="162" cy="67" r="9" fill="#333" stroke="none"/>
+    <circle cx="165" cy="63" r="3.2" fill="#fff" stroke="none"/>
+    <path d="M154 86 Q163 92 171 84" fill="none" stroke-width="3.5"/>
+    <circle cx="142" cy="84" r="5.5" fill="#F8BBD0" stroke="none" opacity="0.9"/>
+    <!-- 手前のかま -->
+    <path d="M118 110 C124 148 184 152 196 100 C180 128 146 130 118 110 Z" fill="#C5E1A5"/>
+    <path d="M172 119 L181 104 L187 114 Z M152 125 L160 110 L166 122 Z M132 123 L139 109 L145 121 Z" fill="#AED581" stroke-width="3"/>
   </g>
 </svg>
