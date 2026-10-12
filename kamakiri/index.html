@@ -6,7 +6,7 @@
 <title>カマキリの草むらぼうけん</title>
 <style>
   html, body { margin: 0; height: 100%; background: #2e7d32; overflow: hidden; }
-  canvas { display: block; width: 100vw; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
   #rotate {
     display: none; position: fixed; inset: 0; background: #1b5e20; color: #fff;
     font-family: sans-serif; font-size: 8vw; align-items: center; justify-content: center;
@@ -33,15 +33,26 @@ const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true }
 let scrollX = 0;          // 画面のスクロール量
 let frame = 0;            // 経過時間（足の動きに使う）
 
-// ジャンプ（スペース or ↑）
+// ジャンプ（地面にいるときだけ跳べる）
+function jump() {
+  if (player.onGround) {
+    player.vy = -JUMP_POWER;
+    player.onGround = false;
+  }
+}
+
+// キーボード：スペース or ↑
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.code === 'ArrowUp') {
     e.preventDefault();
-    if (player.onGround) {
-      player.vy = -JUMP_POWER;
-      player.onGround = false;
-    }
+    jump();
   }
+});
+
+// タッチ・マウス：画面をタップ（クリック）でジャンプ
+window.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  jump();
 });
 
 function update() {
