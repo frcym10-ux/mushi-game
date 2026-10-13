@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>カマキリの草むらぼうけん</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #2e7d32; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #rotate {
+    display: none; position: fixed; inset: 0; background: #1b5e20; color: #fff;
+    font-family: sans-serif; font-size: 8vw; align-items: center; justify-content: center;
+  }
+  @media (orientation: portrait) { #rotate { display: flex; } }
+</style>
+</head>
+<body>
+<canvas id="game" width="800" height="450"></canvas>
+<div id="rotate">よこにしてね</div>
+<script>
+// ===== 仮の数値（遊んでから調整する）=====
+const SPEED = 3;          // 右へ進む速さ
+const GRAVITY = 0.6;      // 重力
+const JUMP_POWER = 13;    // ジャンプの強さ
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const GROUND_Y = 360;     // 地面の高さ
+
+// カマキリ（仮の図形）
+const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true };
+let scrollX = 0;          // 画面のスクロール量
+let frame = 0;            // 経過時間（足の動きに使う）
+
+// ジャンプ（地面にいるときだけ跳べる）
+function jump() {
+  if (player.onGround) {
+    player.vy = -JUMP_POWER;
+    player.onGround = false;
+  }
+}
+
+// キーボード：スペース or ↑
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    e.preventDefault();
+    jump();
+  }
+});
+
+// タッチ・マウス：画面をタップ（クリック）でジャンプ
+window.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  jump();
+});
+
+function update() {
+  scrollX += SPEED;
+  frame++;
+  player.vy += GRAVITY;
+  player.y += player.vy;
+  if (player.y >= GROUND_Y - player.h) {
+    player.y = GROUND_Y - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  }
+}
+
+function draw() {
+  // 空と背景
+  ctx.fillStyle = '#bfe8ff';
+  ctx.fillRect(0, 0, W, H);
+  // 地面
+  ctx.fillStyle = '#4caf50';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  // 草（スクロールして見える）
+  ctx.fillStyle = '#2e7d32';
+  const gap = 40;
+  const offset = scrollX % gap;
+  for (let x = -offset; x < W + gap; x += gap) {
+    ctx.beginPath();
+    ctx.moveTo(x, GROUND_Y);
+    ctx.lineTo(x + 10, GROUND_Y - 25);
+    ctx.lineTo(x + 20, GROUND_Y);
+    ctx.fill();
+  }
+  drawMantis(player.x, player.y, frame, !player.onGround);
+}
+
+// 画像を読みこむ
+const mantisImg = new Image();
+mantisImg.src = 'images/mantis.png';
+
+// カマキリ（右向き）。px, py は当たり判定の左上。t は動きの時間、air はジャンプ中
+// 絵は左向きなので、左右を反転して描く。足もとを当たり判定の下にそろえる
+function drawMantis(px, py, t, air) {
+  if (!mantisImg.complete || mantisImg.naturalWidth === 0) return;
+  const dw = 64;
+  const dh = dw * mantisImg.naturalHeight / mantisImg.naturalWidth;
+  const bob = air ? 0 : Math.abs(Math.sin(t * 0.15)) * -3;   // 走るときの上下ゆれ
+  ctx.save();
+  ctx.translate(px + player.w / 2, py + player.h + bob);
+  ctx.scale(-1, 1);
+  ctx.drawImage(mantisImg, -dw / 2, -dh, dw, dh);
+  ctx.restore();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
