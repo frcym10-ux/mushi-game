@@ -96,8 +96,56 @@ function bugHop(bug) {
   return HOP_HEIGHT * 4 * q * (1 - q);  // 山なりに跳ねる
 }
 
-// ジャンプ（地面にいるときだけ跳べる）
+// ===== スズメ（敵）=====
+// その場で上下に跳ねるだけ。横から当たるとアウト、上から踏むとやっつける（しばらくして、また出てくる）
+const sparrows = [];
+for (let i = 0; i < 8; i++) {
+  sparrows.push({ x: 810 + i * 840, phase: i * 17, defeatedAt: -1 });
+}
+const sparrowImg = new Image();
+sparrowImg.src = 'assets/sparrow.svg';
+const SPARROW_SIZE = 72;                             // 絵の大きさ
+const SPARROW_HIT = { dx: 12, w: 46, h: 40 };        // 当たり判定（絵の左から dx、幅 w、高さ h）
+const SPARROW_HOP = 50;                              // 跳ねる高さ
+const SPARROW_HOP_FRAMES = 70;                       // 1回の跳ねの長さ
+const SPARROW_RESPAWN_FRAMES = 300;                  // やっつけてから、また出てくるまで（約5秒・仮の数値）
+
+// スズメの、いまの地面からの高さ
+function sparrowHop(s) {
+  const p = ((frame + s.phase) % SPARROW_HOP_FRAMES) / SPARROW_HOP_FRAMES;
+  return SPARROW_HOP * 4 * p * (1 - p);
+}
+
+// ===== ゲームの状態 =====
+let gameState = 'playing';  // 'playing'（あそび中）か 'out'（アウトで止まっている）
+let outFrames = 0;          // アウトになってからの経過
+const RETRY_WAIT = 40;      // アウトの直後、「もういちど」を受け付けない時間（ジャンプの連打よけ）
+
+function goOut() {
+  gameState = 'out';
+  outFrames = 0;
+  beep(320, 110, 0.45, 'sawtooth', 0.07);   // ブー
+}
+
+// 最初からやり直す
+function restart() {
+  scrollX = 0;
+  frame = 0;
+  caught = 0;
+  player.y = GROUND_Y - player.h;
+  player.vy = 0;
+  player.onGround = true;
+  for (const b of bugs) b.caughtAt = -1;
+  for (const s of sparrows) s.defeatedAt = -1;
+  gameState = 'playing';
+}
+
+// ジャンプ（地面にいるときだけ跳べる）。アウトで止まっているときは「もういちど」
 function jump() {
+  if (gameState === 'out') {
+    if (outFrames > RETRY_WAIT) restart();
+    return;
+  }
   if (player.onGround) {
     player.vy = -JUMP_POWER;
     player.onGround = false;
@@ -120,6 +168,7 @@ window.addEventListener('pointerdown', (e) => {
 });
 
 function update() {
+  if (gameState === 'out') { outFrames++; return; }   // アウトのあいだは止まる
   scrollX += SPEED;
   frame++;
   const prevBottom = player.y + player.h;   // 1つ前の足もとの高さ（上から踏んだか調べるため）
@@ -131,6 +180,33 @@ function update() {
     player.onGround = true;
   }
   checkBugs(prevBottom);
+  checkSparrows(prevBottom);
+}
+
+// スズメとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
+function checkSparrows(prevBottom) {
+  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const pTop = player.y, pBottom = player.y + player.h;
+  for (const s of sparrows) {
+    if (s.defeatedAt >= 0) {
+      if (frame - s.defeatedAt >= SPARROW_RESPAWN_FRAMES) s.defeatedAt = -1;   // また出てくる
+      else continue;
+    }
+    const screenX = s.x - scrollX;
+    const sLeft = screenX + SPARROW_HIT.dx, sRight = sLeft + SPARROW_HIT.w;
+    const sBottom = GROUND_Y - sparrowHop(s);
+    const sTop = sBottom - SPARROW_HIT.h;
+    const overlap = pRight > sLeft && pLeft < sRight && pBottom > sTop && pTop < sBottom;
+    if (!overlap) continue;
+    const fromAbove = player.vy > 0 && prevBottom <= sTop + 20;
+    if (fromAbove) {
+      s.defeatedAt = frame;
+      beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
+    } else {
+      goOut();
+      return;
+    }
+  }
 }
 
 // 虫を踏んだか調べる。上から踏んだときだけつかまえる（横から触れても何も起きない）
@@ -176,8 +252,69 @@ function draw() {
     ctx.fill();
   }
   drawBugs(left, right);
+  drawSparrows(left, right);
   drawMantis(player.x, player.y, frame, !player.onGround);
   drawCount();
+  if (gameState === 'out') drawOut();
+}
+
+// スズメを描く（画面に見えるものだけ）。やっつけたものは、小さくなって消える
+function drawSparrows(left, right) {
+  if (!sparrowImg.complete || sparrowImg.naturalWidth === 0) return;
+  for (const s of sparrows) {
+    const screenX = s.x - scrollX;
+    if (screenX > right + SPARROW_SIZE || screenX < left - SPARROW_SIZE) continue;
+    let scale = 1;
+    if (s.defeatedAt >= 0) {
+      const t = (frame - s.defeatedAt) / POP_FRAMES;
+      if (t >= 1) continue;
+      scale = 1 - t;
+    }
+    const footY = GROUND_Y - sparrowHop(s);
+    ctx.save();
+    ctx.translate(screenX + SPARROW_SIZE / 2, footY);
+    ctx.scale(scale, scale);
+    ctx.drawImage(sparrowImg, -SPARROW_SIZE / 2, -SPARROW_SIZE * 0.88, SPARROW_SIZE, SPARROW_SIZE);
+    ctx.restore();
+  }
+}
+
+// アウトの表示（画面を少し暗くして、「アウト！」と「もういちど」）
+function drawOut() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const cx = canvas.width / 2;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  // 「アウト！」
+  const big = Math.round(84 * view.s);
+  ctx.font = 'bold ' + big + 'px sans-serif';
+  ctx.lineWidth = big / 7;
+  ctx.strokeStyle = '#fff';
+  ctx.fillStyle = '#e53935';
+  ctx.strokeText('アウト！', cx, view.oy + H * 0.36 * view.s);
+  ctx.fillText('アウト！', cx, view.oy + H * 0.36 * view.s);
+  // 「もういちど」（アウトの直後は出さない）
+  if (outFrames > RETRY_WAIT) {
+    const bw = 260 * view.s, bh = 70 * view.s, by = view.oy + H * 0.62 * view.s;
+    ctx.fillStyle = '#fff';
+    const r = bh / 2, x0 = cx - bw / 2, y0 = by - bh / 2;   // 両はしが丸いボタン
+    ctx.beginPath();
+    ctx.moveTo(x0 + r, y0);
+    ctx.lineTo(x0 + bw - r, y0);
+    ctx.arc(x0 + bw - r, y0 + r, r, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(x0 + r, y0 + bh);
+    ctx.arc(x0 + r, y0 + r, r, Math.PI / 2, Math.PI * 1.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = 'bold ' + Math.round(38 * view.s) + 'px sans-serif';
+    ctx.fillStyle = '#2e7d32';
+    ctx.fillText('もういちど', cx, by);
+  }
+  ctx.restore();
 }
 
 // 虫を描く（画面に見えるものだけ）。つかまえたものは、小さくなって消える
