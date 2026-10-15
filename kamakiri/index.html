@@ -49,12 +49,59 @@ resize();
 const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true };
 let scrollX = 0;          // 画面のスクロール量
 let frame = 0;            // 経過時間（足の動きに使う）
+let caught = 0;           // つかまえた虫の数
+
+// ===== 仮の効果音（ブラウザで鳴らす簡単な音。あとで差し替える）=====
+let audioCtx = null;
+function beep(freqFrom, freqTo, seconds, type, volume) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const t = audioCtx.currentTime;
+    osc.type = type;
+    osc.frequency.setValueAtTime(freqFrom, t);
+    osc.frequency.linearRampToValueAtTime(freqTo, t + seconds);
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + seconds);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + seconds);
+  } catch (e) { /* 音が鳴らなくてもゲームは続ける */ }
+}
+
+// ===== 虫（つかまえる）=====
+// x は草むらの上の位置。画面に出る位置は x - scrollX。type は 'grasshopper'（バッタ）か 'cricket'（コオロギ）
+const bugs = [];
+for (let i = 0; i < 12; i++) {
+  bugs.push({ x: 600 + i * 420, type: i % 2 === 0 ? 'grasshopper' : 'cricket', phase: i * 23, caughtAt: -1 });
+}
+const bugImgs = {};
+for (const name of ['grasshopper', 'cricket']) {
+  bugImgs[name] = new Image();
+  bugImgs[name].src = 'assets/' + name + '.svg';
+}
+const BUG_SIZE = 64;                  // 絵の大きさ
+const BUG_HIT = { dx: 12, w: 40, h: 34 }; // 当たり判定（絵の左から dx、幅 w、地面からの高さ h）
+const HOP_HEIGHT = 26;                // ぴょんと跳ねる高さ
+const HOP_FRAMES = 100;               // 1回の跳ねの長さ（大きいほどゆっくり）
+const POP_FRAMES = 14;                // つかまえたとき、消えるまでの長さ
+
+// いまの跳ね具合（地面からどれだけ浮いているか）
+function bugHop(bug) {
+  const p = ((frame + bug.phase) % HOP_FRAMES) / HOP_FRAMES;
+  if (p >= 0.5) return 0;               // 後半は地面で休む
+  const q = p * 2;                      // 前半の 0〜1
+  return HOP_HEIGHT * 4 * q * (1 - q);  // 山なりに跳ねる
+}
 
 // ジャンプ（地面にいるときだけ跳べる）
 function jump() {
   if (player.onGround) {
     player.vy = -JUMP_POWER;
     player.onGround = false;
+    beep(380, 720, 0.12, 'square', 0.06);   // ぴょん
   }
 }
 
@@ -75,12 +122,34 @@ window.addEventListener('pointerdown', (e) => {
 function update() {
   scrollX += SPEED;
   frame++;
+  const prevBottom = player.y + player.h;   // 1つ前の足もとの高さ（上から踏んだか調べるため）
   player.vy += GRAVITY;
   player.y += player.vy;
   if (player.y >= GROUND_Y - player.h) {
     player.y = GROUND_Y - player.h;
     player.vy = 0;
     player.onGround = true;
+  }
+  checkBugs(prevBottom);
+}
+
+// 虫を踏んだか調べる。上から踏んだときだけつかまえる（横から触れても何も起きない）
+function checkBugs(prevBottom) {
+  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const pBottom = player.y + player.h;
+  for (const bug of bugs) {
+    if (bug.caughtAt >= 0) continue;
+    const screenX = bug.x - scrollX;
+    const bLeft = screenX + BUG_HIT.dx, bRight = bLeft + BUG_HIT.w;
+    const bTop = GROUND_Y - bugHop(bug) - BUG_HIT.h;
+    const overlapX = pRight > bLeft && pLeft < bRight;
+    const falling = player.vy > 0;
+    const fromAbove = prevBottom <= bTop + 14;
+    if (overlapX && falling && fromAbove && pBottom >= bTop) {
+      bug.caughtAt = frame;
+      caught++;
+      beep(700, 1250, 0.16, 'triangle', 0.1);   // ピロッ
+    }
   }
 }
 
@@ -106,7 +175,49 @@ function draw() {
     ctx.lineTo(x + 20, GROUND_Y);
     ctx.fill();
   }
+  drawBugs(left, right);
   drawMantis(player.x, player.y, frame, !player.onGround);
+  drawCount();
+}
+
+// 虫を描く（画面に見えるものだけ）。つかまえたものは、小さくなって消える
+function drawBugs(left, right) {
+  for (const bug of bugs) {
+    const screenX = bug.x - scrollX;
+    if (screenX > right + BUG_SIZE || screenX < left - BUG_SIZE) continue;
+    const img = bugImgs[bug.type];
+    if (!img.complete || img.naturalWidth === 0) continue;
+    let scale = 1;
+    if (bug.caughtAt >= 0) {
+      const t = (frame - bug.caughtAt) / POP_FRAMES;
+      if (t >= 1) continue;
+      scale = 1 - t;
+    }
+    // 絵の足もとは、絵の高さの 88% のところ。そこを地面（跳ねているときは浮いた高さ）にそろえる
+    const footY = GROUND_Y - bugHop(bug);
+    ctx.save();
+    ctx.translate(screenX + BUG_SIZE / 2, footY);
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, -BUG_SIZE / 2, -BUG_SIZE * 0.88, BUG_SIZE, BUG_SIZE);
+    ctx.restore();
+  }
+}
+
+// つかまえた数（確認用の仮表示。結果画面を作る段階で消す）
+function drawCount() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const size = Math.round(26 * view.s);
+  ctx.font = 'bold ' + size + 'px sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.lineWidth = Math.max(2, size / 6);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#fff';
+  ctx.fillStyle = '#333';
+  const text = 'つかまえた: ' + caught;
+  ctx.strokeText(text, view.ox + 16 * view.s, view.oy + 12 * view.s);
+  ctx.fillText(text, view.ox + 16 * view.s, view.oy + 12 * view.s);
+  ctx.restore();
 }
 
 // 画像を読みこむ
