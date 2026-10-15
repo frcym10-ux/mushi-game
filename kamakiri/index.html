@@ -5,23 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>カマキリの草むらぼうけん</title>
 <style>
-  /* 画面の高さ。スマホのアドレス欄を引いた、実際に見える高さ（dvh）を使う */
-  :root { --vh: 100vh; }
-  @supports (height: 100dvh) { :root { --vh: 100dvh; } }
-
-  /* ゲーム画面の高さ（縦横の比率16:9を保ったまま、画面に収まる最大の大きさ） */
-  :root { --h: min(var(--vh), calc(100vw * 9 / 16)); }
-
-  /* 余白は、空と草の色でうめる。草の境目は、ゲーム画面の地面（上から80%）に合わせる */
-  html, body {
-    margin: 0; height: var(--vh); overflow: hidden;
-    background: linear-gradient(to bottom, #bfe8ff calc(50% + var(--h) * 0.3), #4caf50 calc(50% + var(--h) * 0.3));
-  }
-  body { display: flex; align-items: center; justify-content: center; }
+  /* 画面全体を、ゲームの描画に使う。ゲームの部分（16:9）は、真ん中に表示する */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe8ff; }
   canvas {
+    position: fixed; inset: 0; width: 100%; height: 100%;
     display: block; touch-action: none;
-    width: min(100vw, calc(var(--vh) * 16 / 9));
-    height: var(--h);
   }
   #rotate {
     display: none; position: fixed; inset: 0; background: #1b5e20; color: #fff;
@@ -31,7 +19,7 @@
 </style>
 </head>
 <body>
-<canvas id="game" width="800" height="450"></canvas>
+<canvas id="game"></canvas>
 <div id="rotate">よこにしてね</div>
 <script>
 // ===== 仮の数値（遊んでから調整する）=====
@@ -41,8 +29,21 @@ const JUMP_POWER = 13;    // ジャンプの強さ
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const W = canvas.width, H = canvas.height;
+const W = 800, H = 450;   // ゲームの広さ（この大きさを、画面の真ん中に拡大・縮小して表示する）
 const GROUND_Y = 360;     // 地面の高さ
+
+// 画面の大きさに合わせて、描く場所と倍率を決める（スマホの向きやアドレス欄の変化にも対応）
+let view = { s: 1, ox: 0, oy: 0 };
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(window.innerWidth * dpr);
+  canvas.height = Math.round(window.innerHeight * dpr);
+  const s = Math.min(canvas.width / W, canvas.height / H);
+  view = { s, ox: (canvas.width - W * s) / 2, oy: (canvas.height - H * s) / 2 };
+  ctx.imageSmoothingQuality = 'high';
+}
+window.addEventListener('resize', resize);
+resize();
 
 // カマキリ（仮の図形）
 const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true };
@@ -84,17 +85,21 @@ function update() {
 }
 
 function draw() {
+  ctx.setTransform(view.s, 0, 0, view.s, view.ox, view.oy);
+  // 画面いっぱいに見える範囲（ゲームの座標で）。ゲームの外側の余白にも、空・地面・草を描く
+  const left = -view.ox / view.s, right = (canvas.width - view.ox) / view.s;
+  const top = -view.oy / view.s, bottom = (canvas.height - view.oy) / view.s;
   // 空と背景
   ctx.fillStyle = '#bfe8ff';
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(left, top, right - left, bottom - top);
   // 地面
   ctx.fillStyle = '#4caf50';
-  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.fillRect(left, GROUND_Y, right - left, bottom - GROUND_Y);
   // 草（スクロールして見える）
   ctx.fillStyle = '#2e7d32';
   const gap = 40;
-  const offset = scrollX % gap;
-  for (let x = -offset; x < W + gap; x += gap) {
+  for (let k = Math.floor((scrollX + left) / gap) - 1; k <= Math.ceil((scrollX + right) / gap) + 1; k++) {
+    const x = k * gap - scrollX;
     ctx.beginPath();
     ctx.moveTo(x, GROUND_Y);
     ctx.lineTo(x + 10, GROUND_Y - 25);
