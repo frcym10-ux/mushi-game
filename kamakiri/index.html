@@ -5,17 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>カマキリの草むらぼうけん</title>
 <style>
-  /* 余白は、空と草の色（地面の高さ80%）でうめる */
+  /* 画面の高さ。スマホのアドレス欄を引いた、実際に見える高さ（dvh）を使う */
+  :root { --vh: 100vh; }
+  @supports (height: 100dvh) { :root { --vh: 100dvh; } }
+
+  /* ゲーム画面の高さ（縦横の比率16:9を保ったまま、画面に収まる最大の大きさ） */
+  :root { --h: min(var(--vh), calc(100vw * 9 / 16)); }
+
+  /* 余白は、空と草の色でうめる。草の境目は、ゲーム画面の地面（上から80%）に合わせる */
   html, body {
-    margin: 0; height: 100%; overflow: hidden;
-    background: linear-gradient(to bottom, #bfe8ff 80%, #4caf50 80%);
+    margin: 0; height: var(--vh); overflow: hidden;
+    background: linear-gradient(to bottom, #bfe8ff calc(50% + var(--h) * 0.3), #4caf50 calc(50% + var(--h) * 0.3));
   }
   body { display: flex; align-items: center; justify-content: center; }
-  /* 縦横の比率(16:9)を保ったまま、画面に収まる最大の大きさにする */
   canvas {
     display: block; touch-action: none;
-    width: min(100vw, calc(100vh * 16 / 9));
-    height: min(100vh, calc(100vw * 9 / 16));
+    width: min(100vw, calc(var(--vh) * 16 / 9));
+    height: var(--h);
   }
   #rotate {
     display: none; position: fixed; inset: 0; background: #1b5e20; color: #fff;
