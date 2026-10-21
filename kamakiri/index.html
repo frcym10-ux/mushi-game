@@ -116,6 +116,65 @@ function sparrowHop(s) {
   return SPARROW_HOP * 4 * p * (1 - p);
 }
 
+// ===== ネコ（敵）=====
+// 決まった場所まで進むと、画面の右から左へ、地面を走ってくる。横から当たるとアウト、上から踏むとやっつける
+// state: 'waiting'（まだ出てこない）/ 'running'（走っている）/ 'passed'（走り去った）/ 'defeated'（やっつけた）
+const cats = [];
+for (let i = 0; i < 6; i++) {
+  cats.push({ triggerScroll: 1500 + i * 900, state: 'waiting', startFrame: 0, defeatedAt: -1, defeatX: 0 });
+}
+const catImg = new Image();
+catImg.src = 'assets/cat.svg';                      // 絵は最初から左向き
+const CAT_SIZE = 80;                                // 絵の大きさ
+const CAT_HIT = { dx: 10, w: 56, h: 40 };           // 当たり判定（絵の左から dx、幅 w、高さ h）
+const CAT_SPEED = 4;                                // ネコ自身の走る速さ（画面の速さは SPEED + これ）
+const CAT_START_X = 1000;                           // 走り出す位置（画面の右の外）
+const CAT_RESPAWN_FRAMES = 300;                     // やっつけてから、また走ってくるまで（約5秒・仮の数値）
+
+// ネコの、いまの画面での左の位置
+function catScreenX(c) {
+  return CAT_START_X - (SPEED + CAT_SPEED) * (frame - c.startFrame);
+}
+
+// ネコの出番を進める
+function updateCats() {
+  for (const c of cats) {
+    if (c.state === 'waiting' && scrollX >= c.triggerScroll) {
+      c.state = 'running';
+      c.startFrame = frame;
+    } else if (c.state === 'running' && catScreenX(c) < -CAT_SIZE) {
+      c.state = 'passed';
+    } else if (c.state === 'defeated' && frame - c.defeatedAt >= CAT_RESPAWN_FRAMES) {
+      c.state = 'running';          // また走ってくる
+      c.startFrame = frame;
+    }
+  }
+}
+
+// ネコとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
+function checkCats(prevBottom) {
+  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const pTop = player.y, pBottom = player.y + player.h;
+  for (const c of cats) {
+    if (c.state !== 'running') continue;
+    const sx = catScreenX(c);
+    const cLeft = sx + CAT_HIT.dx, cRight = cLeft + CAT_HIT.w;
+    const cTop = GROUND_Y - CAT_HIT.h;
+    const overlap = pRight > cLeft && pLeft < cRight && pBottom > cTop && pTop < GROUND_Y;
+    if (!overlap) continue;
+    const fromAbove = player.vy > 0 && prevBottom <= cTop + 20;
+    if (fromAbove) {
+      c.state = 'defeated';
+      c.defeatedAt = frame;
+      c.defeatX = sx;
+      beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
+    } else {
+      goOut();
+      return;
+    }
+  }
+}
+
 // ===== ゲームの状態 =====
 let gameState = 'playing';  // 'playing'（あそび中）か 'out'（アウトで止まっている）
 let outFrames = 0;          // アウトになってからの経過
@@ -137,6 +196,7 @@ function restart() {
   player.onGround = true;
   for (const b of bugs) b.caughtAt = -1;
   for (const s of sparrows) s.defeatedAt = -1;
+  for (const c of cats) { c.state = 'waiting'; c.defeatedAt = -1; }
   gameState = 'playing';
 }
 
@@ -181,6 +241,9 @@ function update() {
   }
   checkBugs(prevBottom);
   checkSparrows(prevBottom);
+  if (gameState === 'out') return;   // スズメに当たってアウトになったら、ここで止める
+  updateCats();
+  checkCats(prevBottom);
 }
 
 // スズメとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
@@ -253,6 +316,7 @@ function draw() {
   }
   drawBugs(left, right);
   drawSparrows(left, right);
+  drawCats();
   drawMantis(player.x, player.y, frame, !player.onGround);
   drawCount();
   if (gameState === 'out') drawOut();
@@ -275,6 +339,28 @@ function drawSparrows(left, right) {
     ctx.translate(screenX + SPARROW_SIZE / 2, footY);
     ctx.scale(scale, scale);
     ctx.drawImage(sparrowImg, -SPARROW_SIZE / 2, -SPARROW_SIZE * 0.88, SPARROW_SIZE, SPARROW_SIZE);
+    ctx.restore();
+  }
+}
+
+// ネコを描く。走っているときは、少し上下にゆれる。やっつけたものは、小さくなって消える
+function drawCats() {
+  if (!catImg.complete || catImg.naturalWidth === 0) return;
+  for (const c of cats) {
+    let sx, scale = 1;
+    if (c.state === 'running') {
+      sx = catScreenX(c);
+    } else if (c.state === 'defeated' && frame - c.defeatedAt < POP_FRAMES) {
+      sx = c.defeatX - SPEED * (frame - c.defeatedAt);   // 地面と一緒に、うしろへ流れる
+      scale = 1 - (frame - c.defeatedAt) / POP_FRAMES;
+    } else {
+      continue;
+    }
+    const bob = c.state === 'running' ? Math.abs(Math.sin(frame * 0.4)) * -4 : 0;
+    ctx.save();
+    ctx.translate(sx + CAT_SIZE / 2, GROUND_Y + bob);
+    ctx.scale(scale, scale);
+    ctx.drawImage(catImg, -CAT_SIZE / 2, -CAT_SIZE * 0.88, CAT_SIZE, CAT_SIZE);
     ctx.restore();
   }
 }
