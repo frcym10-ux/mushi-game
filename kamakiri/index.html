@@ -175,6 +175,123 @@ function checkCats(prevBottom) {
   }
 }
 
+// ===== カラス（敵）=====
+// 画面の上のほうを飛んでいて、ときどき急降下する。1羽だけ。
+// 急降下の約1秒前に、地面に影が出て「カーッ」と鳴く（予告）。影は地面と一緒に流れてきて、カマキリの位置に着くころ、カラスが影の場所へ降りてくる。
+// state: 'waiting'（まだ出てこない）/ 'cruising'（飛んでいる）/ 'warning'（予告）/ 'diving'（急降下）/ 'low'（地面にいる）/ 'rising'（上へ戻る）/ 'defeated'（やっつけた）
+const crow = { state: 'waiting', since: 0, enterAt: 0, shadowWorld: 0, c0x: 0, c0y: 0, defeatedAt: -1, defeatWorld: 0, defeatY: 0 };
+const crowImg = new Image();
+crowImg.src = 'assets/crow.svg';                    // 絵は右向き（左へ向かうときは反転して描く）
+const CROW_SIZE = 80;                               // 絵の大きさ
+const CROW_HIT = { dx: 10, w: 56, h: 40 };          // 当たり判定（絵の左から dx、幅 w、高さ h）
+const CROW_APPEAR_SCROLL = 1000;                    // ここまで進むと、最初のカラスが出てくる
+const CROW_CRUISE_FRAMES = 240;                     // 飛んでいる時間（約4秒）
+const CROW_WARN_FRAMES = 60;                        // 予告の時間（約1秒）
+const CROW_DIVE_FRAMES = 22;                        // 急降下の時間
+const CROW_LOW_FRAMES = 30;                         // 地面にいる時間
+const CROW_RISE_FRAMES = 28;                        // 上へ戻る時間
+const CROW_RESPAWN_FRAMES = 300;                    // やっつけてから、また出てくるまで（約5秒・仮の数値）
+const CROW_FLY_Y = 95;                              // 飛んでいるときの足もとの高さ
+
+// 飛んでいるときの位置（左右にゆっくり行き来する）。出てきた直後は、右の外から飛んでくる
+function crowCruisePose() {
+  const enter = 450 * Math.max(0, 1 - (frame - crow.enterAt) / 45);
+  return {
+    x: 420 + 150 * Math.sin(frame * 0.02) + enter,
+    y: CROW_FLY_Y + 6 * Math.sin(frame * 0.1),
+    faceLeft: enter > 0 || Math.cos(frame * 0.02) < 0
+  };
+}
+
+// いまのカラスの位置（x は絵の中心、y は足もと）
+function crowPose() {
+  const f = frame - crow.since;
+  const target = crow.shadowWorld - scrollX;        // 影の、いまの画面での位置
+  switch (crow.state) {
+    case 'diving': {
+      const p = f / CROW_DIVE_FRAMES;
+      return { x: crow.c0x + (target - crow.c0x) * p, y: crow.c0y + (GROUND_Y - crow.c0y) * p * p, faceLeft: target < crow.c0x };
+    }
+    case 'low':
+      return { x: target, y: GROUND_Y, faceLeft: true };
+    case 'rising': {
+      const p = f / CROW_RISE_FRAMES;
+      return { x: target, y: GROUND_Y - 330 * p * p, faceLeft: true };
+    }
+    default:
+      return crowCruisePose();
+  }
+}
+
+function startCrowCruise() {
+  crow.state = 'cruising';
+  crow.since = frame;
+  crow.enterAt = frame;
+}
+
+// カラスの出番を進める
+function updateCrow() {
+  const f = frame - crow.since;
+  switch (crow.state) {
+    case 'waiting':
+      if (scrollX >= CROW_APPEAR_SCROLL) startCrowCruise();
+      break;
+    case 'cruising':
+      if (f >= CROW_CRUISE_FRAMES) {
+        crow.state = 'warning';
+        crow.since = frame;
+        // 影の場所：急降下が終わるころ、ちょうどカマキリの位置に着くところ
+        crow.shadowWorld = scrollX + player.x + player.w / 2 + SPEED * (CROW_WARN_FRAMES + CROW_DIVE_FRAMES);
+        beep(520, 380, 0.18, 'sawtooth', 0.07);                               // カー
+        setTimeout(() => beep(480, 330, 0.22, 'sawtooth', 0.07), 200);        // ーッ
+      }
+      break;
+    case 'warning':
+      if (f >= CROW_WARN_FRAMES) {
+        const pose = crowCruisePose();
+        crow.c0x = pose.x;
+        crow.c0y = pose.y;
+        crow.state = 'diving';
+        crow.since = frame;
+      }
+      break;
+    case 'diving':
+      if (f >= CROW_DIVE_FRAMES) { crow.state = 'low'; crow.since = frame; }
+      break;
+    case 'low':
+      if (f >= CROW_LOW_FRAMES) { crow.state = 'rising'; crow.since = frame; }
+      break;
+    case 'rising':
+      if (f >= CROW_RISE_FRAMES) startCrowCruise();
+      break;
+    case 'defeated':
+      if (frame - crow.defeatedAt >= CROW_RESPAWN_FRAMES) startCrowCruise();   // また飛んでくる
+      break;
+  }
+}
+
+// カラスとの当たり（降りてくる間・地面・上へ戻る間だけ）。上から踏んだらやっつける。それ以外で重なったらアウト
+function checkCrow(prevBottom) {
+  if (crow.state !== 'diving' && crow.state !== 'low' && crow.state !== 'rising') return;
+  const pose = crowPose();
+  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const pTop = player.y, pBottom = player.y + player.h;
+  const cLeft = pose.x - CROW_SIZE / 2 + CROW_HIT.dx, cRight = cLeft + CROW_HIT.w;
+  const cBottom = pose.y, cTop = cBottom - CROW_HIT.h;
+  const overlap = pRight > cLeft && pLeft < cRight && pBottom > cTop && pTop < cBottom;
+  if (!overlap) return;
+  const fromAbove = player.vy > 0 && prevBottom <= cTop + 20;
+  if (fromAbove) {
+    crow.state = 'defeated';
+    crow.defeatedAt = frame;
+    crow.defeatWorld = scrollX + pose.x;
+    crow.defeatY = pose.y;
+    beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
+  } else {
+    goOut();
+  }
+}
+
 // ===== ゲームの状態 =====
 let gameState = 'playing';  // 'playing'（あそび中）か 'out'（アウトで止まっている）
 let outFrames = 0;          // アウトになってからの経過
@@ -197,6 +314,8 @@ function restart() {
   for (const b of bugs) b.caughtAt = -1;
   for (const s of sparrows) s.defeatedAt = -1;
   for (const c of cats) { c.state = 'waiting'; c.defeatedAt = -1; }
+  crow.state = 'waiting';
+  crow.defeatedAt = -1;
   gameState = 'playing';
 }
 
@@ -244,6 +363,9 @@ function update() {
   if (gameState === 'out') return;   // スズメに当たってアウトになったら、ここで止める
   updateCats();
   checkCats(prevBottom);
+  if (gameState === 'out') return;   // ネコに当たってアウトになったら、ここで止める
+  updateCrow();
+  checkCrow(prevBottom);
 }
 
 // スズメとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
@@ -314,9 +436,11 @@ function draw() {
     ctx.lineTo(x + 20, GROUND_Y);
     ctx.fill();
   }
+  drawCrowShadow();
   drawBugs(left, right);
   drawSparrows(left, right);
   drawCats();
+  drawCrow();
   drawMantis(player.x, player.y, frame, !player.onGround);
   drawCount();
   if (gameState === 'out') drawOut();
@@ -363,6 +487,46 @@ function drawCats() {
     ctx.drawImage(catImg, -CAT_SIZE / 2, -CAT_SIZE * 0.88, CAT_SIZE, CAT_SIZE);
     ctx.restore();
   }
+}
+
+// カラスの影（予告）。だんだん大きくなって、カラスが降りてくる間は大きいまま、上へ戻るときに小さくなる
+function drawCrowShadow() {
+  const f = frame - crow.since;
+  let q;   // 影の大きさの割合（0〜1）
+  if (crow.state === 'warning') q = 0.6 * f / CROW_WARN_FRAMES;
+  else if (crow.state === 'diving') q = 0.6 + 0.4 * f / CROW_DIVE_FRAMES;
+  else if (crow.state === 'low') q = 1;
+  else if (crow.state === 'rising') q = 1 - f / CROW_RISE_FRAMES;
+  else return;
+  const x = crow.shadowWorld - scrollX;
+  const rx = 14 + 52 * q;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+  ctx.beginPath();
+  ctx.ellipse(x, GROUND_Y + 12, rx, rx * 0.26, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// カラスを描く。やっつけたものは、小さくなって消える
+function drawCrow() {
+  if (!crowImg.complete || crowImg.naturalWidth === 0) return;
+  if (crow.state === 'waiting') return;
+  let x, y, faceLeft, scale = 1;
+  if (crow.state === 'defeated') {
+    const t = (frame - crow.defeatedAt) / POP_FRAMES;
+    if (t >= 1) return;
+    x = crow.defeatWorld - scrollX;
+    y = crow.defeatY;
+    faceLeft = true;
+    scale = 1 - t;
+  } else {
+    const pose = crowPose();
+    x = pose.x; y = pose.y; faceLeft = pose.faceLeft;
+  }
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(faceLeft ? -scale : scale, scale);        // 絵は右向き。左へ向かうときは反転
+  ctx.drawImage(crowImg, -CROW_SIZE / 2, -CROW_SIZE * 0.88, CROW_SIZE, CROW_SIZE);
+  ctx.restore();
 }
 
 // アウトの表示（画面を少し暗くして、「アウト！」と「もういちど」）
