@@ -163,7 +163,7 @@ function checkCats(prevBottom) {
     const overlap = pRight > cLeft && pLeft < cRight && pBottom > cTop && pTop < GROUND_Y;
     if (!overlap) continue;
     const fromAbove = player.vy > 0 && prevBottom <= cTop + 20;
-    if (fromAbove) {
+    if (fromAbove || lightActive()) {      // 光の粉の効果中は、どこから触れてもやっつける
       c.state = 'defeated';
       c.defeatedAt = frame;
       c.defeatX = sx;
@@ -281,7 +281,7 @@ function checkCrow(prevBottom) {
   const overlap = pRight > cLeft && pLeft < cRight && pBottom > cTop && pTop < cBottom;
   if (!overlap) return;
   const fromAbove = player.vy > 0 && prevBottom <= cTop + 20;
-  if (fromAbove) {
+  if (fromAbove || lightActive()) {      // 光の粉の効果中は、どこから触れてもやっつける
     crow.state = 'defeated';
     crow.defeatedAt = frame;
     crow.defeatWorld = scrollX + pose.x;
@@ -289,6 +289,87 @@ function checkCrow(prevBottom) {
     beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
   } else {
     goOut();
+  }
+}
+
+// ===== ?ブロックとアイテム =====
+// ブロックは空中に浮いている。ジャンプで下から頭をぶつけると、アイテムが出る（たたいたブロックは茶色になり、もう出ない）
+// 光の粉：一定時間、敵に当たってもアウトにならず、触れた敵をやっつける
+// はねのはっぱ：一定時間、ジャンプの高さが1.5倍
+const BLOCK_SIZE = 48;                 // ブロックの大きさ
+const BLOCK_BOTTOM = 100;              // ブロックの下の面の、地面からの高さ
+const PLAYER_HEAD = 16;                // カマキリの絵は、当たり判定の枠より、頭の分だけ上に出ている
+const ITEM_SIZE = 44;                  // アイテムの絵の大きさ
+const EFFECT_FRAMES = 600;             // 効果の長さ（10秒）
+const blockXs = [1000, 2200, 3400, 4600];                    // ブロックの位置（草むらの上の位置）
+const blockItems = ['light', 'leaf', 'light', 'leaf'];       // 出てくるアイテムの順番
+const blocks = blockXs.map((x, i) => ({ x, item: blockItems[i], used: false, hitAt: -1 }));
+const items = [];                      // 出てきて、まだ取られていないアイテム
+const blockImg = new Image();
+blockImg.src = 'assets/block.svg';
+const itemImgs = { light: new Image(), leaf: new Image() };
+itemImgs.light.src = 'assets/item-light.svg';
+itemImgs.leaf.src = 'assets/item-leaf.svg';
+let lightUntil = -1;                   // 光の粉の効果が終わる時刻（frame）
+let leafUntil = -1;                    // はねのはっぱの効果が終わる時刻（frame）
+function lightActive() { return frame < lightUntil; }
+function leafActive() { return frame < leafUntil; }
+
+// たたいたあとの茶色いブロック（元の絵に、茶色を重ねて作る）
+let usedBlockCanvas = null;
+function getUsedBlockImage() {
+  if (usedBlockCanvas) return usedBlockCanvas;
+  if (!blockImg.complete || blockImg.naturalWidth === 0) return null;
+  const c = document.createElement('canvas');
+  c.width = 160; c.height = 160;
+  const g = c.getContext('2d');
+  g.drawImage(blockImg, 0, 0, 160, 160);
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = 'rgba(121, 85, 72, 0.82)';
+  g.fillRect(0, 0, 160, 160);
+  usedBlockCanvas = c;
+  return c;
+}
+
+// ジャンプで上がっているとき、頭がブロックの下の面を通りぬけようとしたら、たたいたことにする
+function checkBlocks(prevHeadY) {
+  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const headY = player.y - PLAYER_HEAD;
+  const blockBottomY = GROUND_Y - BLOCK_BOTTOM;
+  for (const b of blocks) {
+    if (b.used) continue;
+    const left = b.x - scrollX, right = left + BLOCK_SIZE;
+    if (player.vy < 0 && prevHeadY >= blockBottomY && headY < blockBottomY && pRight > left && pLeft < right) {
+      b.used = true;
+      b.hitAt = frame;
+      player.y = blockBottomY + PLAYER_HEAD;   // 頭を打って、そこで止まる
+      player.vy = 0;
+      // アイテムは、ブロックから少し前へ飛び出して、地面に落ちる
+      items.push({ type: b.item, x: b.x + BLOCK_SIZE / 2 - ITEM_SIZE / 2 + 50, y: GROUND_Y - BLOCK_BOTTOM - BLOCK_SIZE, vy: -6 });
+      beep(260, 170, 0.1, 'square', 0.08);                                   // コン
+      setTimeout(() => beep(600, 1000, 0.15, 'sine', 0.09), 90);             // ポン（アイテム出現）
+    }
+  }
+}
+
+// アイテムの動き（地面に落ちる）と、カマキリが取ったかどうか
+function updateItems() {
+  const pLeft = player.x - 3, pRight = player.x + player.w + 3;
+  const pTop = player.y - PLAYER_HEAD, pBottom = player.y + player.h;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    it.vy += GRAVITY * 0.7;
+    it.y += it.vy;
+    if (it.y + ITEM_SIZE >= GROUND_Y) { it.y = GROUND_Y - ITEM_SIZE; it.vy = 0; }
+    const sx = it.x - scrollX;
+    if (sx < -ITEM_SIZE - 100) { items.splice(i, 1); continue; }          // 画面の左に流れていった
+    const overlap = pRight > sx && pLeft < sx + ITEM_SIZE && pBottom > it.y && pTop < it.y + ITEM_SIZE;
+    if (overlap) {
+      if (it.type === 'light') lightUntil = frame + EFFECT_FRAMES;
+      else leafUntil = frame + EFFECT_FRAMES;
+      items.splice(i, 1);
+      beep(700, 1500, 0.25, 'triangle', 0.1);                            // キラッ（取った）
+    }
   }
 }
 
@@ -316,6 +397,10 @@ function restart() {
   for (const c of cats) { c.state = 'waiting'; c.defeatedAt = -1; }
   crow.state = 'waiting';
   crow.defeatedAt = -1;
+  for (const b of blocks) { b.used = false; b.hitAt = -1; }
+  items.length = 0;
+  lightUntil = -1;
+  leafUntil = -1;
   gameState = 'playing';
 }
 
@@ -326,7 +411,8 @@ function jump() {
     return;
   }
   if (player.onGround) {
-    player.vy = -JUMP_POWER;
+    // はねのはっぱ中は、高さが1.5倍。高さは、跳ぶ強さの2乗に比例するので、強さは√1.5倍にする
+    player.vy = -(leafActive() ? JUMP_POWER * Math.sqrt(1.5) : JUMP_POWER);
     player.onGround = false;
     beep(380, 720, 0.12, 'square', 0.06);   // ぴょん
   }
@@ -351,6 +437,7 @@ function update() {
   scrollX += SPEED;
   frame++;
   const prevBottom = player.y + player.h;   // 1つ前の足もとの高さ（上から踏んだか調べるため）
+  const prevHeadY = player.y - PLAYER_HEAD; // 1つ前の頭の高さ（ブロックをたたいたか調べるため）
   player.vy += GRAVITY;
   player.y += player.vy;
   if (player.y >= GROUND_Y - player.h) {
@@ -358,6 +445,8 @@ function update() {
     player.vy = 0;
     player.onGround = true;
   }
+  checkBlocks(prevHeadY);
+  updateItems();
   checkBugs(prevBottom);
   checkSparrows(prevBottom);
   if (gameState === 'out') return;   // スズメに当たってアウトになったら、ここで止める
@@ -384,7 +473,7 @@ function checkSparrows(prevBottom) {
     const overlap = pRight > sLeft && pLeft < sRight && pBottom > sTop && pTop < sBottom;
     if (!overlap) continue;
     const fromAbove = player.vy > 0 && prevBottom <= sTop + 20;
-    if (fromAbove) {
+    if (fromAbove || lightActive()) {      // 光の粉の効果中は、どこから触れてもやっつける
       s.defeatedAt = frame;
       beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
     } else {
@@ -437,10 +526,13 @@ function draw() {
     ctx.fill();
   }
   drawCrowShadow();
+  drawBlocks(left, right);
+  drawItems(left, right);
   drawBugs(left, right);
   drawSparrows(left, right);
   drawCats();
   drawCrow();
+  drawAura();
   drawMantis(player.x, player.y, frame, !player.onGround);
   drawCount();
   if (gameState === 'out') drawOut();
@@ -527,6 +619,78 @@ function drawCrow() {
   ctx.scale(faceLeft ? -scale : scale, scale);        // 絵は右向き。左へ向かうときは反転
   ctx.drawImage(crowImg, -CROW_SIZE / 2, -CROW_SIZE * 0.88, CROW_SIZE, CROW_SIZE);
   ctx.restore();
+}
+
+// ブロックを描く。たたいた直後は、ぽんと上にはねる。たたいたあとは茶色
+function drawBlocks(left, right) {
+  if (!blockImg.complete || blockImg.naturalWidth === 0) return;
+  for (const b of blocks) {
+    const sx = b.x - scrollX;
+    if (sx > right + BLOCK_SIZE || sx < left - BLOCK_SIZE) continue;
+    let bump = 0;
+    if (b.hitAt >= 0 && frame - b.hitAt < 10) bump = -10 * Math.sin(Math.PI * (frame - b.hitAt) / 10);
+    const img = b.used ? (getUsedBlockImage() || blockImg) : blockImg;
+    ctx.drawImage(img, sx, GROUND_Y - BLOCK_BOTTOM - BLOCK_SIZE + bump, BLOCK_SIZE, BLOCK_SIZE);
+  }
+}
+
+// アイテムを描く（ふわふわ上下にゆれる）
+function drawItems(left, right) {
+  for (const it of items) {
+    const sx = it.x - scrollX;
+    if (sx > right + ITEM_SIZE || sx < left - ITEM_SIZE) continue;
+    const img = itemImgs[it.type];
+    if (!img.complete || img.naturalWidth === 0) continue;
+    const bob = it.vy === 0 ? Math.sin(frame * 0.12) * 3 : 0;
+    ctx.drawImage(img, sx, it.y + bob, ITEM_SIZE, ITEM_SIZE);
+  }
+}
+
+// 4つのとがった星（光の粉の、まわりのきらきら）
+function drawSparkle(x, y, r) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.quadraticCurveTo(x + r * 0.15, y - r * 0.15, x + r, y);
+  ctx.quadraticCurveTo(x + r * 0.15, y + r * 0.15, x, y + r);
+  ctx.quadraticCurveTo(x - r * 0.15, y + r * 0.15, x - r, y);
+  ctx.quadraticCurveTo(x - r * 0.15, y - r * 0.15, x, y - r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// 効果中の、カマキリのまわり（光の粉：きらきらの輪、はねのはっぱ：緑の輪）
+function drawAura() {
+  const cx = player.x + player.w / 2, cy = player.y + player.h / 2 - 6;
+  if (leafActive()) {
+    const r = 46 + 2 * Math.sin(frame * 0.15);
+    const g = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+    g.addColorStop(0, 'rgba(129, 199, 132, 0)');
+    g.addColorStop(1, 'rgba(102, 187, 106, 0.55)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(56, 142, 60, 0.8)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+  if (lightActive()) {
+    const r = 50 + 3 * Math.sin(frame * 0.2);
+    const g = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
+    g.addColorStop(0, 'rgba(255, 249, 196, 0.15)');
+    g.addColorStop(1, 'rgba(255, 238, 88, 0.6)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFEE58';
+    ctx.strokeStyle = '#F9A825';
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < 4; k++) {
+      const a = frame * 0.07 + k * Math.PI / 2;
+      drawSparkle(cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4), k % 2 === 0 ? 9 : 6);
+    }
+  }
 }
 
 // アウトの表示（画面を少し暗くして、「アウト！」と「もういちど」）
