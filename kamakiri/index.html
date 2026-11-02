@@ -23,7 +23,7 @@
 <div id="rotate">よこにしてね</div>
 <script>
 // ===== 仮の数値（遊んでから調整する）=====
-const SPEED = 3;          // 右へ進む速さ
+const SPEED = 2.4;        // 右へ進む速さ（4歳の子が遊ぶので、ゆっくりめ）
 const GRAVITY = 0.6;      // 重力
 const JUMP_POWER = 13;    // ジャンプの強さ
 
@@ -46,7 +46,9 @@ window.addEventListener('resize', resize);
 resize();
 
 // カマキリ（仮の図形）
-const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true };
+const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true, jumps: 0 };
+const PLAYER_HIT_PAD = 12;   // 敵との当たりでは、カマキリの左右を、この分だけ小さく見る（ゆるくする）
+const MAX_JUMPS = 2;         // 空中でもう一度跳べる（2段ジャンプ）
 let scrollX = 0;          // 画面のスクロール量
 let frame = 0;            // 経過時間（足の動きに使う）
 let caught = 0;           // つかまえた虫の数
@@ -70,6 +72,12 @@ function beep(freqFrom, freqTo, seconds, type, volume) {
     osc.stop(t + seconds);
   } catch (e) { /* 音が鳴らなくてもゲームは続ける */ }
 }
+
+// ===== 演出（虫をつかまえたときの「ぱくっ！」、2段ジャンプの「ぽん」）=====
+// x は草むらの上の位置（地面と一緒に流れる）、y は画面の高さ、born は始まった時刻。
+const effects = [];
+const MUNCH_FRAMES = 42;               // 「ぱくっ！」が出ている時間
+const PUFF_FRAMES = 16;                // 2段ジャンプの輪が出ている時間
 
 // ===== ゴール（大きな木の根もと）=====
 const GOAL_X = 16000;                  // 木の左はしの、草むらの上の位置（約90秒走ったところ・仮の数値）
@@ -112,8 +120,8 @@ for (let i = 0; 810 + i * 1260 < GOAL_X - 800; i++) {     // ゴールの手前�
 const sparrowImg = new Image();
 sparrowImg.src = 'assets/sparrow.svg';
 const SPARROW_SIZE = 72;                             // 絵の大きさ
-const SPARROW_HIT = { dx: 12, w: 46, h: 40 };        // 当たり判定（絵の左から dx、幅 w、高さ h）
-const SPARROW_HOP = 50;                              // 跳ねる高さ
+const SPARROW_HIT = { dx: 18, w: 34, h: 40 };        // 当たり判定（絵の左から dx、幅 w、高さ h）
+const SPARROW_HOP = 24;                              // 跳ねる高さ（低めにして、飛び越えやすくする）
 const SPARROW_HOP_FRAMES = 70;                       // 1回の跳ねの長さ
 const SPARROW_RESPAWN_FRAMES = 300;                  // やっつけてから、また出てくるまで（約5秒・仮の数値）
 
@@ -133,8 +141,8 @@ for (let i = 0; 1500 + i * 1500 < GOAL_X - 1500; i++) {   // ゴールの手前�
 const catImg = new Image();
 catImg.src = 'assets/cat.svg';                      // 絵は最初から左向き
 const CAT_SIZE = 80;                                // 絵の大きさ
-const CAT_HIT = { dx: 10, w: 56, h: 40 };           // 当たり判定（絵の左から dx、幅 w、高さ h）
-const CAT_SPEED = 4;                                // ネコ自身の走る速さ（画面の速さは SPEED + これ）
+const CAT_HIT = { dx: 16, w: 44, h: 40 };           // 当たり判定（絵の左から dx、幅 w、高さ h）
+const CAT_SPEED = 2;                                // ネコ自身の走る速さ（画面の速さは SPEED + これ）
 const CAT_START_X = 1000;                           // 走り出す位置（画面の右の外）
 const CAT_RESPAWN_FRAMES = 300;                     // やっつけてから、また走ってくるまで（約5秒・仮の数値）
 
@@ -160,7 +168,7 @@ function updateCats() {
 
 // ネコとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
 function checkCats(prevBottom) {
-  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const pLeft = player.x + PLAYER_HIT_PAD, pRight = player.x + player.w - PLAYER_HIT_PAD;
   const pTop = player.y, pBottom = player.y + player.h;
   for (const c of cats) {
     if (c.state !== 'running') continue;
@@ -190,12 +198,12 @@ const crow = { state: 'waiting', since: 0, enterAt: 0, shadowWorld: 0, c0x: 0, c
 const crowImg = new Image();
 crowImg.src = 'assets/crow.svg';                    // 絵は右向き（左へ向かうときは反転して描く）
 const CROW_SIZE = 80;                               // 絵の大きさ
-const CROW_HIT = { dx: 10, w: 56, h: 40 };          // 当たり判定（絵の左から dx、幅 w、高さ h）
+const CROW_HIT = { dx: 16, w: 44, h: 40 };          // 当たり判定（絵の左から dx、幅 w、高さ h）
 const CROW_APPEAR_SCROLL = 1000;                    // ここまで進むと、最初のカラスが出てくる
 const CROW_CRUISE_FRAMES = 240;                     // 飛んでいる時間（約4秒）
 const CROW_WARN_FRAMES = 60;                        // 予告の時間（約1秒）
-const CROW_DIVE_FRAMES = 22;                        // 急降下の時間
-const CROW_LOW_FRAMES = 30;                         // 地面にいる時間
+const CROW_DIVE_FRAMES = 34;                        // 急降下の時間
+const CROW_LOW_FRAMES = 40;                         // 地面にいる時間
 const CROW_RISE_FRAMES = 28;                        // 上へ戻る時間
 const CROW_RESPAWN_FRAMES = 300;                    // やっつけてから、また出てくるまで（約5秒・仮の数値）
 const CROW_FLY_Y = 95;                              // 飛んでいるときの足もとの高さ
@@ -281,7 +289,7 @@ function updateCrow() {
 function checkCrow(prevBottom) {
   if (crow.state !== 'diving' && crow.state !== 'low' && crow.state !== 'rising') return;
   const pose = crowPose();
-  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const pLeft = player.x + PLAYER_HIT_PAD, pRight = player.x + player.w - PLAYER_HIT_PAD;
   const pTop = player.y, pBottom = player.y + player.h;
   const cLeft = pose.x - CROW_SIZE / 2 + CROW_HIT.dx, cRight = cLeft + CROW_HIT.w;
   const cBottom = pose.y, cTop = cBottom - CROW_HIT.h;
@@ -399,6 +407,8 @@ function restart() {
   player.y = GROUND_Y - player.h;
   player.vy = 0;
   player.onGround = true;
+  player.jumps = 0;
+  effects.length = 0;
   for (const b of bugs) b.caughtAt = -1;
   for (const s of sparrows) s.defeatedAt = -1;
   for (const c of cats) { c.state = 'waiting'; c.defeatedAt = -1; }
@@ -417,11 +427,18 @@ function jump() {
     if (outFrames > RETRY_WAIT) restart();
     return;
   }
-  if (player.onGround) {
+  if (player.onGround || player.jumps < MAX_JUMPS) {
     // はねのはっぱ中は、高さが1.5倍。高さは、跳ぶ強さの2乗に比例するので、強さは√1.5倍にする
     player.vy = -(leafActive() ? JUMP_POWER * Math.sqrt(1.5) : JUMP_POWER);
+    const second = !player.onGround;        // 空中でのジャンプ（2段目）
+    player.jumps = second ? player.jumps + 1 : 1;
     player.onGround = false;
-    beep(380, 720, 0.12, 'square', 0.06);   // ぴょん
+    if (second) {
+      beep(560, 980, 0.12, 'square', 0.06);   // ぴょん（2段目は、少し高い音）
+      effects.push({ type: 'puff', x: scrollX + player.x + player.w / 2, y: player.y + player.h, born: frame });
+    } else {
+      beep(380, 720, 0.12, 'square', 0.06);   // ぴょん
+    }
   }
 }
 
@@ -429,6 +446,7 @@ function jump() {
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.code === 'ArrowUp') {
     e.preventDefault();
+    if (e.repeat) return;     // 押しっぱなしでは、くり返さない
     jump();
   }
 });
@@ -451,6 +469,7 @@ function update() {
     player.y = GROUND_Y - player.h;
     player.vy = 0;
     player.onGround = true;
+    player.jumps = 0;
   }
   checkBlocks(prevHeadY);
   updateItems();
@@ -479,7 +498,7 @@ function checkGoal() {
 
 // スズメとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
 function checkSparrows(prevBottom) {
-  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
+  const pLeft = player.x + PLAYER_HIT_PAD, pRight = player.x + player.w - PLAYER_HIT_PAD;
   const pTop = player.y, pBottom = player.y + player.h;
   for (const s of sparrows) {
     if (s.defeatedAt >= 0) {
@@ -518,6 +537,7 @@ function checkBugs(prevBottom) {
     if (overlapX && falling && fromAbove && pBottom >= bTop) {
       bug.caughtAt = frame;
       caught++;
+      effects.push({ type: 'munch', x: bug.x + BUG_SIZE / 2, y: GROUND_Y - bugHop(bug) - 34, born: frame });   // 「ぱくっ！」
       beep(700, 1250, 0.16, 'triangle', 0.1);   // ピロッ
     }
   }
@@ -553,6 +573,7 @@ function draw() {
   drawSparrows(left, right);
   drawCats();
   drawCrow();
+  drawEffects(left, right);
   drawAura();
   drawMantis(player.x, player.y, frame, !player.onGround);
   if (gameState === 'out') drawOut();
@@ -648,6 +669,53 @@ function drawCrow() {
   ctx.scale(faceLeft ? -scale : scale, scale);        // 絵は右向き。左へ向かうときは反転
   ctx.drawImage(crowImg, -CROW_SIZE / 2, -CROW_SIZE * 0.88, CROW_SIZE, CROW_SIZE);
   ctx.restore();
+}
+
+// 演出を描く。「ぱくっ！」は、きらきらと一緒に、ふわっと上がって消える。2段ジャンプは、足もとに輪が広がる
+function drawEffects(left, right) {
+  for (let i = effects.length - 1; i >= 0; i--) {
+    const e = effects[i];
+    const age = frame - e.born;
+    const life = e.type === 'munch' ? MUNCH_FRAMES : PUFF_FRAMES;
+    if (age >= life) { effects.splice(i, 1); continue; }
+    const t = age / life;                       // 0 → 1
+    const sx = e.x - scrollX;
+    if (sx < left - 120 || sx > right + 120) continue;
+    ctx.save();
+    if (e.type === 'munch') {
+      ctx.globalAlpha = 1 - Math.max(0, (t - 0.6) / 0.4);
+      // きらきら（まわりに広がる）
+      ctx.fillStyle = '#FFEE58';
+      ctx.strokeStyle = '#F9A825';
+      ctx.lineWidth = 1.5;
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4 + 0.3;
+        const d = 18 + 38 * t;
+        drawSparkle(sx + Math.cos(a) * d, e.y + 10 + Math.sin(a) * d * 0.8, k % 2 === 0 ? 8 : 5);
+      }
+      // 「ぱくっ！」の文字
+      const size = 34 * (0.6 + 0.4 * Math.min(1, t * 5));
+      ctx.font = 'bold ' + size + 'px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = '#fff';
+      ctx.fillStyle = '#ef6c00';
+      const ty = e.y - 14 - 30 * t;
+      ctx.strokeText('ぱくっ！', sx, ty);
+      ctx.fillText('ぱくっ！', sx, ty);
+    } else {
+      // 2段ジャンプ：足もとに、白い輪がふわっと広がる
+      ctx.globalAlpha = 0.8 * (1 - t);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 5 * (1 - t) + 1;
+      ctx.beginPath();
+      ctx.ellipse(sx, e.y, 14 + 34 * t, 5 + 9 * t, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 }
 
 // ブロックを描く。たたいた直後は、ぽんと上にはねる。たたいたあとは茶色
