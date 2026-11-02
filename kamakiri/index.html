@@ -46,7 +46,9 @@ window.addEventListener('resize', resize);
 resize();
 
 // カマキリ（仮の図形）
-const player = { x: 100, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true, jumps: 0 };
+const PLAYER_X = 100;        // カマキリの、画面での基本の位置（はじかれたときだけ、少し後ろへずれる）
+const MAX_HP = 3;            // ハートの数（敵に3回はじかれると、アウト）
+const player = { x: PLAYER_X, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true, jumps: 0, knockX: 0, hp: MAX_HP, invUntil: -1 };
 const PLAYER_HIT_PAD = 12;   // 敵との当たりでは、カマキリの左右を、この分だけ小さく見る（ゆるくする）
 const MAX_JUMPS = 2;         // 空中でもう一度跳べる（2段ジャンプ）
 let scrollX = 0;          // 画面のスクロール量
@@ -78,6 +80,7 @@ function beep(freqFrom, freqTo, seconds, type, volume) {
 const effects = [];
 const MUNCH_FRAMES = 42;               // 「ぱくっ！」が出ている時間
 const PUFF_FRAMES = 16;                // 2段ジャンプの輪が出ている時間
+const OUCH_FRAMES = 36;                // 「いたっ！」が出ている時間
 
 // ===== ゴール（大きな木の根もと）=====
 const GOAL_X = 16000;                  // 木の左はしの、草むらの上の位置（約90秒走ったところ・仮の数値）
@@ -166,7 +169,7 @@ function updateCats() {
   }
 }
 
-// ネコとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
+// ネコとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったら、はじかれる
 function checkCats(prevBottom) {
   const pLeft = player.x + PLAYER_HIT_PAD, pRight = player.x + player.w - PLAYER_HIT_PAD;
   const pTop = player.y, pBottom = player.y + player.h;
@@ -184,8 +187,8 @@ function checkCats(prevBottom) {
       c.defeatX = sx;
       beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
     } else {
-      goOut();
-      return;
+      hurt();
+      if (gameState === 'out') return;
     }
   }
 }
@@ -256,7 +259,7 @@ function updateCrow() {
         crow.state = 'warning';
         crow.since = frame;
         // 影の場所：急降下が終わるころ、ちょうどカマキリの位置に着くところ
-        crow.shadowWorld = scrollX + player.x + player.w / 2 + SPEED * (CROW_WARN_FRAMES + CROW_DIVE_FRAMES);
+        crow.shadowWorld = scrollX + PLAYER_X + player.w / 2 + SPEED * (CROW_WARN_FRAMES + CROW_DIVE_FRAMES);
         beep(520, 380, 0.18, 'sawtooth', 0.07);                               // カー
         setTimeout(() => beep(480, 330, 0.22, 'sawtooth', 0.07), 200);        // ーッ
       }
@@ -285,7 +288,7 @@ function updateCrow() {
   }
 }
 
-// カラスとの当たり（降りてくる間・地面・上へ戻る間だけ）。上から踏んだらやっつける。それ以外で重なったらアウト
+// カラスとの当たり（降りてくる間・地面・上へ戻る間だけ）。上から踏んだらやっつける。それ以外で重なったら、はじかれる
 function checkCrow(prevBottom) {
   if (crow.state !== 'diving' && crow.state !== 'low' && crow.state !== 'rising') return;
   const pose = crowPose();
@@ -303,7 +306,7 @@ function checkCrow(prevBottom) {
     crow.defeatY = pose.y;
     beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
   } else {
-    goOut();
+    hurt();
   }
 }
 
@@ -393,10 +396,57 @@ let gameState = 'playing';  // 'playing'（あそび中）か 'out'（アウト�
 let outFrames = 0;          // アウトになってからの経過
 const RETRY_WAIT = 40;      // アウトの直後、「もういちど」を受け付けない時間（ジャンプの連打よけ）
 
+let outScrollX = 0;         // アウトになったときの、草むらの上の位置（少し手前から再開するために覚えておく）
+const INVINCIBLE_FRAMES = 90;     // はじかれたあと・再開したあと、しばらく当たらない時間（約1.5秒）
+const KNOCK_X = 60;               // はじかれて、後ろへ下がる大きさ
+const KNOCK_VY = 8;               // はじかれて、上へ跳ぶ強さ
+const RESUME_BACK_FRAMES = 180;   // アウトのあと、何フレーム手前から再開するか（約3秒）
+
 function goOut() {
   gameState = 'out';
   outFrames = 0;
+  outScrollX = scrollX;
   beep(320, 110, 0.45, 'sawtooth', 0.07);   // ブー
+}
+
+// 敵に当たった。後ろへはじかれて、ハートが1つ減る。ハートがなくなったらアウト
+function hurt() {
+  if (frame < player.invUntil) return;          // はじかれた直後は、続けて当たらない
+  player.hp--;
+  effects.push({ type: 'ouch', x: scrollX + player.x + player.w / 2, y: player.y - 8, born: frame });   // 「いたっ！」
+  if (player.hp <= 0) { goOut(); return; }
+  player.invUntil = frame + INVINCIBLE_FRAMES;
+  player.knockX = -KNOCK_X;                     // 後ろへ
+  player.vy = -KNOCK_VY;                        // 少し上へ
+  player.onGround = false;
+  player.jumps = 1;                             // 空中で、あと1回は跳べる
+  beep(300, 140, 0.2, 'sine', 0.12);            // ぼよん
+}
+
+// アウトのあと、約3秒手前から再開する（つかまえた虫の数は、そのまま）
+function resumeFromEarlier() {
+  const back = Math.max(0, outScrollX - RESUME_BACK_FRAMES * SPEED);
+  scrollX = back;
+  player.hp = MAX_HP;
+  player.knockX = 0;
+  player.x = PLAYER_X;
+  player.y = GROUND_Y - player.h;
+  player.vy = 0;
+  player.onGround = true;
+  player.jumps = 0;
+  player.invUntil = frame + INVINCIBLE_FRAMES;   // 再開した直後も、少しのあいだ当たらない
+  lightUntil = -1;                               // 光の粉・はねのはっぱの効果は、消える
+  leafUntil = -1;
+  items.length = 0;
+  effects.length = 0;
+  // 再開した場所から先は、敵と?ブロックを、もとの状態にもどす（つかまえた虫は、つかまえたまま）
+  const here = back + PLAYER_X;
+  for (const sp of sparrows) if (sp.x + SPARROW_SIZE > here) sp.defeatedAt = -1;
+  for (const c of cats) c.state = c.triggerScroll >= back ? 'waiting' : 'passed';
+  crow.state = 'waiting';
+  crow.defeatedAt = -1;
+  for (const b of blocks) if (b.x + BLOCK_SIZE > here) { b.used = false; b.hitAt = -1; }
+  gameState = 'playing';
 }
 
 // 最初からやり直す
@@ -408,6 +458,11 @@ function restart() {
   player.vy = 0;
   player.onGround = true;
   player.jumps = 0;
+  player.hp = MAX_HP;
+  player.knockX = 0;
+  player.x = PLAYER_X;
+  player.invUntil = -1;
+  outScrollX = 0;
   effects.length = 0;
   for (const b of bugs) b.caughtAt = -1;
   for (const s of sparrows) s.defeatedAt = -1;
@@ -423,7 +478,11 @@ function restart() {
 
 // ジャンプ（地面にいるときだけ跳べる）。アウトで止まっているときは「もういちど」
 function jump() {
-  if (gameState !== 'playing') {          // アウト・ゴールで止まっているとき
+  if (gameState === 'out') {              // アウトで止まっているとき：少し手前から再開
+    if (outFrames > RETRY_WAIT) resumeFromEarlier();
+    return;
+  }
+  if (gameState !== 'playing') {          // ゴールで止まっているとき：最初から
     if (outFrames > RETRY_WAIT) restart();
     return;
   }
@@ -461,6 +520,9 @@ function update() {
   if (gameState !== 'playing') { outFrames++; return; }   // アウト・ゴールのあいだは止まる
   scrollX += SPEED;
   frame++;
+  player.knockX *= 0.92;                                       // はじかれて下がった分が、だんだんもどる
+  if (Math.abs(player.knockX) < 0.5) player.knockX = 0;
+  player.x = PLAYER_X + player.knockX;
   const prevBottom = player.y + player.h;   // 1つ前の足もとの高さ（上から踏んだか調べるため）
   const prevHeadY = player.y - PLAYER_HEAD; // 1つ前の頭の高さ（ブロックをたたいたか調べるため）
   player.vy += GRAVITY;
@@ -473,7 +535,7 @@ function update() {
   }
   checkBlocks(prevHeadY);
   updateItems();
-  checkBugs(prevBottom);
+  checkBugs();
   checkSparrows(prevBottom);
   if (gameState === 'out') return;   // スズメに当たってアウトになったら、ここで止める
   updateCats();
@@ -496,7 +558,7 @@ function checkGoal() {
   }
 }
 
-// スズメとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったらアウト
+// スズメとの当たり。上から踏んだらやっつける。それ以外（横など）で重なったら、はじかれる
 function checkSparrows(prevBottom) {
   const pLeft = player.x + PLAYER_HIT_PAD, pRight = player.x + player.w - PLAYER_HIT_PAD;
   const pTop = player.y, pBottom = player.y + player.h;
@@ -516,25 +578,23 @@ function checkSparrows(prevBottom) {
       s.defeatedAt = frame;
       beep(520, 900, 0.12, 'square', 0.07);    // やっつけた
     } else {
-      goOut();
-      return;
+      hurt();
+      if (gameState === 'out') return;
     }
   }
 }
 
-// 虫を踏んだか調べる。上から踏んだときだけつかまえる（横から触れても何も起きない）
-function checkBugs(prevBottom) {
-  const pLeft = player.x + 5, pRight = player.x + player.w - 5;
-  const pBottom = player.y + player.h;
+// 虫に触れたか調べる。触れたらつかまえる（上からでも、横からでも、下からでも）
+function checkBugs() {
+  const pLeft = player.x - 4, pRight = player.x + player.w + 4;       // 少し大きめに見る（つかまえやすく）
+  const pTop = player.y - PLAYER_HEAD, pBottom = player.y + player.h;
   for (const bug of bugs) {
     if (bug.caughtAt >= 0) continue;
     const screenX = bug.x - scrollX;
     const bLeft = screenX + BUG_HIT.dx, bRight = bLeft + BUG_HIT.w;
-    const bTop = GROUND_Y - bugHop(bug) - BUG_HIT.h;
-    const overlapX = pRight > bLeft && pLeft < bRight;
-    const falling = player.vy > 0;
-    const fromAbove = prevBottom <= bTop + 14;
-    if (overlapX && falling && fromAbove && pBottom >= bTop) {
+    const bBottom = GROUND_Y - bugHop(bug);
+    const bTop = bBottom - BUG_HIT.h;
+    if (pRight > bLeft && pLeft < bRight && pBottom > bTop && pTop < bBottom) {
       bug.caughtAt = frame;
       caught++;
       effects.push({ type: 'munch', x: bug.x + BUG_SIZE / 2, y: GROUND_Y - bugHop(bug) - 34, born: frame });   // 「ぱくっ！」
@@ -575,9 +635,36 @@ function draw() {
   drawCrow();
   drawEffects(left, right);
   drawAura();
+  const blink = frame < player.invUntil && Math.floor(frame / 4) % 2 === 0;   // はじかれた後は、点滅する
+  if (blink) ctx.globalAlpha = 0.35;
   drawMantis(player.x, player.y, frame, !player.onGround);
+  ctx.globalAlpha = 1;
+  drawHearts();
   if (gameState === 'out') drawOut();
   if (gameState === 'clear') drawClear();
+}
+
+// ハート（のこりのはじかれてよい回数）。左上に3つ。はじかれると、1つずつ、からになる
+function drawHearts() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const size = 32 * view.s, gap = 8 * view.s;
+  const x0 = view.ox + 16 * view.s, y0 = view.oy + 14 * view.s;
+  for (let i = 0; i < MAX_HP; i++) {
+    const cx = x0 + i * (size + gap) + size / 2, cy = y0 + size / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + size * 0.4);
+    ctx.bezierCurveTo(cx - size * 0.8, cy - size * 0.05, cx - size * 0.48, cy - size * 0.65, cx, cy - size * 0.22);
+    ctx.bezierCurveTo(cx + size * 0.48, cy - size * 0.65, cx + size * 0.8, cy - size * 0.05, cx, cy + size * 0.4);
+    ctx.closePath();
+    ctx.fillStyle = i < player.hp ? '#e53935' : 'rgba(255, 255, 255, 0.55)';
+    ctx.fill();
+    ctx.lineWidth = Math.max(2, size / 11);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = i < player.hp ? '#fff' : '#9e9e9e';
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ゴールの木を描く（絵の根もとを、地面にそろえる）
@@ -676,7 +763,7 @@ function drawEffects(left, right) {
   for (let i = effects.length - 1; i >= 0; i--) {
     const e = effects[i];
     const age = frame - e.born;
-    const life = e.type === 'munch' ? MUNCH_FRAMES : PUFF_FRAMES;
+    const life = e.type === 'munch' ? MUNCH_FRAMES : e.type === 'ouch' ? OUCH_FRAMES : PUFF_FRAMES;
     if (age >= life) { effects.splice(i, 1); continue; }
     const t = age / life;                       // 0 → 1
     const sx = e.x - scrollX;
@@ -705,6 +792,19 @@ function drawEffects(left, right) {
       const ty = e.y - 14 - 30 * t;
       ctx.strokeText('ぱくっ！', sx, ty);
       ctx.fillText('ぱくっ！', sx, ty);
+    } else if (e.type === 'ouch') {
+      // はじかれた：「いたっ！」が、ぷるぷるふるえながら、上がって消える
+      ctx.globalAlpha = 1 - Math.max(0, (t - 0.55) / 0.45);
+      ctx.font = 'bold 38px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 7;
+      ctx.strokeStyle = '#fff';
+      ctx.fillStyle = '#e53935';
+      const shake = Math.sin(age * 1.6) * 3 * (1 - t);
+      ctx.strokeText('いたっ！', sx + shake, e.y - 24 * t);
+      ctx.fillText('いたっ！', sx + shake, e.y - 24 * t);
     } else {
       // 2段ジャンプ：足もとに、白い輪がふわっと広がる
       ctx.globalAlpha = 0.8 * (1 - t);
