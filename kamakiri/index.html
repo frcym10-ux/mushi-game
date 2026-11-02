@@ -81,6 +81,11 @@ const effects = [];
 const MUNCH_FRAMES = 42;               // 「ぱくっ！」が出ている時間
 const PUFF_FRAMES = 16;                // 2段ジャンプの輪が出ている時間
 const OUCH_FRAMES = 36;                // 「いたっ！」が出ている時間
+const HEAL_FRAMES = 36;                // 回復のハートが出ている時間
+const BUGS_PER_HEART = 1;              // 虫を何匹つかまえると、ハートが1つ回復するか
+let healProgress = 0;                  // 回復まで、あと何匹か数えるための数
+let healAt = -100;                     // 最後に回復した時刻（左上のハートを、ぽんとふくらませるため）
+let healIndex = 0;                     // 回復したハートの番号
 
 // ===== ゴール（大きな木の根もと）=====
 const GOAL_X = 16000;                  // 木の左はしの、草むらの上の位置（約90秒走ったところ・仮の数値）
@@ -428,6 +433,7 @@ function resumeFromEarlier() {
   const back = Math.max(0, outScrollX - RESUME_BACK_FRAMES * SPEED);
   scrollX = back;
   player.hp = MAX_HP;
+  healProgress = 0;
   player.knockX = 0;
   player.x = PLAYER_X;
   player.y = GROUND_Y - player.h;
@@ -459,6 +465,7 @@ function restart() {
   player.onGround = true;
   player.jumps = 0;
   player.hp = MAX_HP;
+  healProgress = 0;
   player.knockX = 0;
   player.x = PLAYER_X;
   player.invUntil = -1;
@@ -599,8 +606,22 @@ function checkBugs() {
       caught++;
       effects.push({ type: 'munch', x: bug.x + BUG_SIZE / 2, y: GROUND_Y - bugHop(bug) - 34, born: frame });   // 「ぱくっ！」
       beep(700, 1250, 0.16, 'triangle', 0.1);   // ピロッ
+      healByBug();
     }
   }
+}
+
+// 虫を食べたら、ハートが回復する（3つそろっているときは、何も起きない）
+function healByBug() {
+  if (player.hp >= MAX_HP) { healProgress = 0; return; }
+  healProgress++;
+  if (healProgress < BUGS_PER_HEART) return;
+  healProgress = 0;
+  healIndex = player.hp;                   // これから、からだったハートが、赤くなる
+  player.hp++;
+  healAt = frame;
+  effects.push({ type: 'heal', x: scrollX + player.x + player.w / 2, y: player.y - PLAYER_HEAD - 6, born: frame });
+  setTimeout(() => beep(1000, 1500, 0.2, 'sine', 0.09), 110);       // ぴろりん
 }
 
 function draw() {
@@ -652,11 +673,10 @@ function drawHearts() {
   const x0 = view.ox + 16 * view.s, y0 = view.oy + 14 * view.s;
   for (let i = 0; i < MAX_HP; i++) {
     const cx = x0 + i * (size + gap) + size / 2, cy = y0 + size / 2;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy + size * 0.4);
-    ctx.bezierCurveTo(cx - size * 0.8, cy - size * 0.05, cx - size * 0.48, cy - size * 0.65, cx, cy - size * 0.22);
-    ctx.bezierCurveTo(cx + size * 0.48, cy - size * 0.65, cx + size * 0.8, cy - size * 0.05, cx, cy + size * 0.4);
-    ctx.closePath();
+    // 回復したハートは、ぽんとふくらむ
+    const age = frame - healAt;
+    const pop = (i === healIndex && age >= 0 && age < 24) ? 1 + 0.5 * Math.sin(Math.PI * age / 24) : 1;
+    heartPath(cx, cy, size * pop);
     ctx.fillStyle = i < player.hp ? '#e53935' : 'rgba(255, 255, 255, 0.55)';
     ctx.fill();
     ctx.lineWidth = Math.max(2, size / 11);
@@ -665,6 +685,15 @@ function drawHearts() {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+// ハートの形を、道すじとして作る（塗るのは、使う側）
+function heartPath(cx, cy, size) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + size * 0.4);
+  ctx.bezierCurveTo(cx - size * 0.8, cy - size * 0.05, cx - size * 0.48, cy - size * 0.65, cx, cy - size * 0.22);
+  ctx.bezierCurveTo(cx + size * 0.48, cy - size * 0.65, cx + size * 0.8, cy - size * 0.05, cx, cy + size * 0.4);
+  ctx.closePath();
 }
 
 // ゴールの木を描く（絵の根もとを、地面にそろえる）
@@ -763,7 +792,7 @@ function drawEffects(left, right) {
   for (let i = effects.length - 1; i >= 0; i--) {
     const e = effects[i];
     const age = frame - e.born;
-    const life = e.type === 'munch' ? MUNCH_FRAMES : e.type === 'ouch' ? OUCH_FRAMES : PUFF_FRAMES;
+    const life = e.type === 'munch' ? MUNCH_FRAMES : e.type === 'ouch' ? OUCH_FRAMES : e.type === 'heal' ? HEAL_FRAMES : PUFF_FRAMES;
     if (age >= life) { effects.splice(i, 1); continue; }
     const t = age / life;                       // 0 → 1
     const sx = e.x - scrollX;
@@ -792,6 +821,23 @@ function drawEffects(left, right) {
       const ty = e.y - 14 - 30 * t;
       ctx.strokeText('ぱくっ！', sx, ty);
       ctx.fillText('ぱくっ！', sx, ty);
+    } else if (e.type === 'heal') {
+      // 回復：赤いハートが、ふわっと上がって消える
+      ctx.globalAlpha = 1 - Math.max(0, (t - 0.5) / 0.5);
+      const hy = e.y - 34 * t;
+      const hs = 30 * (0.6 + 0.4 * Math.min(1, t * 4));
+      heartPath(sx, hy, hs);
+      ctx.fillStyle = '#ff5252';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+      ctx.fillStyle = '#FFEE58';
+      ctx.strokeStyle = '#F9A825';
+      ctx.lineWidth = 1.5;
+      drawSparkle(sx + 22 + 6 * t, hy - 10, 7);
+      drawSparkle(sx - 22 - 6 * t, hy + 4, 5);
     } else if (e.type === 'ouch') {
       // はじかれた：「いたっ！」が、ぷるぷるふるえながら、上がって消える
       ctx.globalAlpha = 1 - Math.max(0, (t - 0.55) / 0.45);
