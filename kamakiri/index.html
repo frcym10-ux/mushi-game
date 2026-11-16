@@ -354,6 +354,7 @@ const BLOCK_BOTTOM = 100;              // ブロックの下の面の、地面�
 const PLAYER_HEAD = 16;                // カマキリの絵は、当たり判定の枠より、頭の分だけ上に出ている
 const ITEM_SIZE = 44;                  // アイテムの絵の大きさ
 const EFFECT_FRAMES = 600;             // 効果の長さ（10秒）
+const EFFECT_BLINK_FRAMES = 120;       // 効果が切れる前、輪が点滅して知らせる長さ（2秒）
 const blockXs = [1400, 4300, 7200, 10100, 13000];                     // ブロックの位置（草むらの上の位置）
 const blockItems = ['light', 'leaf', 'light', 'leaf', 'light'];       // 出てくるアイテムの順番
 const blocks = blockXs.map((x, i) => ({ x, item: blockItems[i], used: false, hitAt: -1 }));
@@ -575,6 +576,7 @@ window.addEventListener('pointerdown', (e) => {
 });
 
 function update() {
+  bgClock++;                              // 雲は、どの画面でも、ゆっくり流れる
   if (gameState !== 'playing') {          // スタート・アウト・ゴールの画面では、進まない
     stateFrames++;
     if (gameState === 'title') frame++;   // スタート画面では、虫たちが、その場で動いて待っている
@@ -689,9 +691,8 @@ function draw() {
   // 画面いっぱいに見える範囲（ゲームの座標で）。ゲームの外側の余白にも、空・地面・草を描く
   const left = -view.ox / view.s, right = (canvas.width - view.ox) / view.s;
   const top = -view.oy / view.s, bottom = (canvas.height - view.oy) / view.s;
-  // 空と背景
-  ctx.fillStyle = '#bfe8ff';
-  ctx.fillRect(left, top, right - left, bottom - top);
+  // 空・雲・遠くの丘・奥の木
+  drawBackground(left, right, top);
   // 地面
   ctx.fillStyle = '#4caf50';
   ctx.fillRect(left, GROUND_Y, right - left, bottom - GROUND_Y);
@@ -713,7 +714,7 @@ function draw() {
   drawBugs(left, right);
   drawSparrows(left, right);
   drawCats();
-  drawCrow();
+  if (gameState !== 'clear') drawCrow();     // ゴールの結果の画面では、カラスは出さない（文字と重なるため）
   drawEffects(left, right);
   drawAura();
   if (gameState === 'title') {            // スタート画面：大きなカマキリと、タイトル（走るカマキリとハートは、まだ出さない）
@@ -727,6 +728,81 @@ function draw() {
   drawHearts();
   if (gameState === 'out') drawOut();
   if (gameState === 'clear') drawClear();
+}
+
+// ===== 背景（空・雲・遠くの丘・奥の木）=====
+// 手前のキャラクターが目立つように、うすい色で、ふちの線なしで描く。
+// 遠くのものほど、ゆっくり流れる（scrollX に掛ける数が小さいほど、遠い）。
+let bgClock = 0;                    // 雲を流すための時計（どの画面でも進む）
+
+// 場所ごとに決まった、0〜1の数（何回描いても、同じ場所には同じ形が出る）
+function rand(i, salt) {
+  const v = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+  return v - Math.floor(v);
+}
+
+// だ円を、いまの道すじに足す（いくつか足してから、まとめて塗る）
+function blob(cx, cy, rx, ry) {
+  ctx.moveTo(cx + rx, cy);
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+}
+
+function drawBackground(left, right, top) {
+  // 空（上のほうが、こい青。地面の近くは、うすい）
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  sky.addColorStop(0, '#9fd9ff');
+  sky.addColorStop(1, '#e3f5ff');
+  ctx.fillStyle = sky;
+  ctx.fillRect(left, top, right - left, GROUND_Y - top);
+
+  // 雲（とてもゆっくり流れる）
+  const cloudShift = scrollX * 0.06 + bgClock * 0.1;
+  const CLOUD_GAP = 330;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  for (let k = Math.floor((cloudShift + left - 150) / CLOUD_GAP); k <= Math.ceil((cloudShift + right + 150) / CLOUD_GAP); k++) {
+    const x = k * CLOUD_GAP + rand(k, 1) * 160 - cloudShift;
+    const y = 40 + rand(k, 2) * 90;
+    const s = 0.7 + rand(k, 3) * 0.6;
+    ctx.beginPath();
+    blob(x, y, 46 * s, 16 * s);
+    blob(x - 22 * s, y - 10 * s, 20 * s, 16 * s);
+    blob(x + 4 * s, y - 18 * s, 24 * s, 20 * s);
+    blob(x + 26 * s, y - 8 * s, 18 * s, 14 * s);
+    ctx.fill();
+  }
+
+  // 遠くの丘（なだらかな山なみ）
+  const hillShift = scrollX * 0.12;
+  ctx.fillStyle = '#cbe9da';
+  ctx.beginPath();
+  const x0 = Math.floor(left / 16) * 16;
+  ctx.moveTo(x0, GROUND_Y);
+  for (let x = x0; x <= right + 16; x += 16) {
+    const u = x + hillShift;
+    ctx.lineTo(x, GROUND_Y - 54 - 26 * Math.sin(u * 0.006) - 14 * Math.sin(u * 0.017 + 1.3));
+  }
+  ctx.lineTo(right + 16, GROUND_Y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 奥の木（丸い木が、まばらにならぶ）
+  const treeShift = scrollX * 0.3;
+  const TREE_GAP = 130;
+  for (let k = Math.floor((treeShift + left - 120) / TREE_GAP); k <= Math.ceil((treeShift + right + 120) / TREE_GAP); k++) {
+    if (rand(k, 4) < 0.3) continue;                    // ところどころ、木のないところ
+    const x = k * TREE_GAP + rand(k, 5) * 70 - treeShift;
+    const r = 24 + rand(k, 6) * 20;                    // 葉のかたまりの大きさ
+    const trunk = 26 + rand(k, 7) * 30;                // みきの高さ
+    const leafY = GROUND_Y - trunk;                    // 葉が始まる高さ
+    ctx.fillStyle = '#c9bbae';
+    ctx.fillRect(x - r * 0.16, leafY - r * 0.5, r * 0.32, trunk + r * 0.5);
+    ctx.fillStyle = rand(k, 8) < 0.5 ? '#a9d9bb' : '#98d0ad';
+    ctx.beginPath();
+    blob(x, leafY - r * 0.9, r, r * 0.95);
+    blob(x - r * 0.7, leafY - r * 0.45, r * 0.7, r * 0.65);
+    blob(x + r * 0.7, leafY - r * 0.45, r * 0.7, r * 0.65);
+    ctx.fill();
+  }
 }
 
 // スタート画面：タイトルと「スタート」。大きなカマキリが、左で待っている
@@ -1035,7 +1111,9 @@ function drawSparkle(x, y, r) {
 // 効果中の、カマキリのまわり（光の粉：きらきらの輪、はねのはっぱ：緑の輪）
 function drawAura() {
   const cx = player.x + player.w / 2, cy = player.y + player.h / 2 - 6;
-  if (leafActive()) {
+  // 効果が切れる2秒前からは、点滅して知らせる
+  const shown = (until) => frame < until && (until - frame > EFFECT_BLINK_FRAMES || Math.floor(frame / 6) % 2 === 1);
+  if (shown(leafUntil)) {
     const r = 46 + 2 * Math.sin(frame * 0.15);
     const g = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
     g.addColorStop(0, 'rgba(129, 199, 132, 0)');
@@ -1048,7 +1126,7 @@ function drawAura() {
     ctx.lineWidth = 3;
     ctx.stroke();
   }
-  if (lightActive()) {
+  if (shown(lightUntil)) {
     const r = 50 + 3 * Math.sin(frame * 0.2);
     const g = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
     g.addColorStop(0, 'rgba(255, 249, 196, 0.15)');
@@ -1143,6 +1221,13 @@ function drawClear() {
     ctx.strokeText(text, cx, view.oy + y * view.s);
     ctx.fillText(text, cx, view.oy + y * view.s);
   };
+  // きらきら（数字のまわりで、またたく）
+  ctx.fillStyle = '#fff59d';
+  const stars = [[-270, -40], [270, -50], [-330, 60], [330, 50], [-210, 130], [220, 140], [-120, -110], [130, -120]];
+  stars.forEach(([dx, dy], i) => {
+    const twinkle = 0.5 + 0.5 * Math.sin(stateFrames * 0.12 + i * 1.7);
+    drawSparkle(cx + dx * view.s, view.oy + (H * 0.42 + dy) * view.s, (7 + 11 * twinkle) * view.s);
+  });
   line('ぜんぶで', 44, H * 0.2, '#fff', '#2e7d32');
   line(caught + ' ひき！', 110, H * 0.42, '#ffeb3b', '#e65100');
   drawRetryButton(cx, view.oy + H * 0.7 * view.s);
