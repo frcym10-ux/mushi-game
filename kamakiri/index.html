@@ -2,11 +2,16 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>カマキリの草むらぼうけん</title>
 <style>
   /* 画面全体を、ゲームの描画に使う。ゲームの部分（16:9）は、真ん中に表示する */
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe8ff; }
+  /* 長押しのメニューや文字の選択、画面の引っぱりが出ないようにする（子どもが触っても、遊びが止まらない） */
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #bfe8ff;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent; overscroll-behavior: none; touch-action: none;
+  }
   canvas {
     position: fixed; inset: 0; width: 100%; height: 100%;
     display: block; touch-action: none;
@@ -33,20 +38,26 @@ const W = 800, H = 450;   // ゲームの広さ（この大きさを、画面の
 const GROUND_Y = 360;     // 地面の高さ
 
 // 画面の大きさに合わせて、描く場所と倍率を決める（スマホの向きやアドレス欄の変化にも対応）
+// 画面を書くたびに、いま見えているキャンバスの実際の大きさを見る（変わったときだけ、作り直す）
 let view = { s: 1, ox: 0, oy: 0 };
-function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(window.innerWidth * dpr);
-  canvas.height = Math.round(window.innerHeight * dpr);
-  const s = Math.min(canvas.width / W, canvas.height / H);
-  view = { s, ox: (canvas.width - W * s) / 2, oy: (canvas.height - H * s) / 2 };
-  ctx.imageSmoothingQuality = 'high';
+function fitCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);   // とても細かい画面でも、3倍までにして軽くする
+  const box = canvas.getBoundingClientRect();
+  const w = Math.round(box.width * dpr), h = Math.round(box.height * dpr);
+  if (w === 0 || h === 0) return;
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+    ctx.imageSmoothingQuality = 'high';
+  }
+  const s = Math.min(w / W, h / H);
+  view = { s, ox: (w - W * s) / 2, oy: (h - H * s) / 2 };
 }
-window.addEventListener('resize', resize);
-resize();
+fitCanvas();
 
-// カマキリ（仮の図形）
+// カマキリ
 const PLAYER_X = 100;        // カマキリの、画面での基本の位置（はじかれたときだけ、少し後ろへずれる）
+const SKY_TOP = 22;          // カマキリが上がれる一番高いところ（絵の頭が、画面の上から出ない高さ）
 const MAX_HP = 3;            // ハートの数（敵に3回はじかれると、アウト）
 const player = { x: PLAYER_X, y: GROUND_Y - 50, w: 50, h: 50, vy: 0, onGround: true, jumps: 0, knockX: 0, hp: MAX_HP, invUntil: -1 };
 const PLAYER_HIT_PAD = 12;   // 敵との当たりでは、カマキリの左右を、この分だけ小さく見る（ゆるくする）
@@ -56,11 +67,23 @@ let frame = 0;            // 経過時間（足の動きに使う）
 let caught = 0;           // つかまえた虫の数
 
 // ===== 仮の効果音（ブラウザで鳴らす簡単な音。あとで差し替える）=====
+// スマホやiPadでは、タッチやキーの操作の中で始めないと、音が鳴らない。
+// そのため、操作のたびに unlockAudio() を呼んで、鳴らせる状態にしておく。
 let audioCtx = null;
-function beep(freqFrom, freqTo, seconds, type, volume) {
+let inGesture = false;    // いま、タッチやキーの操作の中かどうか
+function unlockAudio() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (audioCtx.state !== 'running') {
+      const p = audioCtx.resume();
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (e) { /* 音が使えなくても、ゲームは続ける */ }
+}
+function beep(freqFrom, freqTo, seconds, type, volume) {
+  try {
+    if (!audioCtx) return;                                       // まだ一度も操作されていない
+    if (audioCtx.state !== 'running' && !inGesture) return;      // 音が止まっているあいだの分は、ためこまない
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     const t = audioCtx.currentTime;
@@ -508,19 +531,27 @@ function jump() {
   }
 }
 
+// 操作があったとき（タッチ・クリック・キーのどれでも、同じ動き）
+function onPress() {
+  inGesture = true;
+  unlockAudio();
+  jump();
+  inGesture = false;
+}
+
 // キーボード：スペース or ↑
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.code === 'ArrowUp') {
     e.preventDefault();
     if (e.repeat) return;     // 押しっぱなしでは、くり返さない
-    jump();
+    onPress();
   }
 });
 
 // タッチ・マウス：画面をタップ（クリック）でジャンプ
 window.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  jump();
+  onPress();
 });
 
 function update() {
@@ -534,6 +565,10 @@ function update() {
   const prevHeadY = player.y - PLAYER_HEAD; // 1つ前の頭の高さ（ブロックをたたいたか調べるため）
   player.vy += GRAVITY;
   player.y += player.vy;
+  if (player.y < SKY_TOP) {                 // 高く跳びすぎても、画面の上からは出ない
+    player.y = SKY_TOP;
+    if (player.vy < 0) player.vy = 0;
+  }
   if (player.y >= GROUND_Y - player.h) {
     player.y = GROUND_Y - player.h;
     player.vy = 0;
@@ -625,6 +660,7 @@ function healByBug() {
 }
 
 function draw() {
+  fitCanvas();
   ctx.setTransform(view.s, 0, 0, view.s, view.ox, view.oy);
   // 画面いっぱいに見える範囲（ゲームの座標で）。ゲームの外側の余白にも、空・地面・草を描く
   const left = -view.ox / view.s, right = (canvas.width - view.ox) / view.s;
@@ -1043,12 +1079,56 @@ function drawMantis(px, py, t, air) {
   ctx.restore();
 }
 
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
+// ===== 時間の進め方 =====
+// 画面を書きかえる速さ（1秒に60回、90回、120回など）は、端末によってちがう。
+// ゲームの中の時間は、どの端末でも、1秒に60コマずつ進める（速い画面でも、ゲームは速くならない）。
+const STEP_MS = 1000 / 60;      // 1コマの長さ（ミリ秒）
+const MAX_STEPS = 4;            // 1回の書きかえで進めるコマ数の上限（とても重いときに、進めすぎない）
+let lastTime = null;            // 前に画面を書いた時刻
+let stepDebt = 0;               // まだゲームを進めていない時間（ミリ秒）
+let resumeGrace = false;        // 止まっていた状態から、もどったところか
+const portraitQuery = window.matchMedia('(orientation: portrait)');
+
+// 書きかえの間隔が、よくある速さ（1秒に240・120・60・30回）に近いときは、ぴったりその値として数える。
+// （ほんの少しのずれをためこむと、ときどき、コマが飛んだり止まったりして見えるため）
+function snapInterval(dt) {
+  for (const k of [0.25, 0.5, 1, 2]) {
+    const target = STEP_MS * k;
+    if (Math.abs(dt - target) < Math.min(1, target * 0.06)) return target;
+  }
+  return dt;
 }
-loop();
+
+// dt ミリ秒ぶん、ゲームを進める。進めたコマ数を返す
+function advanceTime(dt) {
+  stepDebt += snapInterval(dt);
+  let steps = Math.floor((stepDebt + 1) / STEP_MS);    // 1ミリ秒の余裕（ほんの少し足りないだけで、1回待つのを防ぐ）
+  stepDebt -= steps * STEP_MS;
+  if (steps > MAX_STEPS) { steps = MAX_STEPS; stepDebt = 0; }
+  for (let i = 0; i < steps; i++) update();
+  return steps;
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  // 縦向き（「よこにしてね」の表示中）や、ほかのタブを見ているあいだは、ゲームを止める
+  const paused = document.hidden || portraitQuery.matches;
+  const dt = lastTime === null ? STEP_MS : now - lastTime;
+  lastTime = now;
+  if (paused) { resumeGrace = true; return; }
+  if (dt > 250) resumeGrace = true;                    // 長く止まっていた（画面を消していた、など）
+  if (resumeGrace) {
+    // もどった直後は、時間をまとめて進めない。遊んでいる途中なら、1秒だけ、敵に当たらないようにする
+    resumeGrace = false;
+    stepDebt = 0;
+    if (gameState === 'playing') player.invUntil = Math.max(player.invUntil, frame + 60);
+    advanceTime(STEP_MS);
+  } else {
+    advanceTime(dt);
+  }
+  draw();
+}
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
