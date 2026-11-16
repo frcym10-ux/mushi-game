@@ -67,8 +67,10 @@ let frame = 0;            // 経過時間（足の動きに使う）
 let caught = 0;           // つかまえた虫の数
 
 // ===== 仮の効果音（ブラウザで鳴らす簡単な音。あとで差し替える）=====
-// スマホやiPadでは、タッチやキーの操作の中で始めないと、音が鳴らない。
-// そのため、操作のたびに unlockAudio() を呼んで、鳴らせる状態にしておく。
+// ブラウザは、遊ぶ人が操作したときにだけ、音を鳴らし始めることを許す。
+// 許されるのは、キーを押したとき・クリックしたとき・タッチの指を「はなした」ときなど
+// （タッチの指を「おろした」瞬間は、まだ許されない。iPad・スマホで音が出ない原因になりやすい）。
+// そのため、それらの操作のたびに unlockAudio() を呼んで、鳴らせる状態にしておく。
 let audioCtx = null;
 let inGesture = false;    // いま、タッチやキーの操作の中かどうか
 function unlockAudio() {
@@ -80,13 +82,18 @@ function unlockAudio() {
     }
   } catch (e) { /* 音が使えなくても、ゲームは続ける */ }
 }
-function beep(freqFrom, freqTo, seconds, type, volume) {
+for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
+  window.addEventListener(type, unlockAudio, { passive: true });
+}
+
+// 音を1つ鳴らす。freqFrom → freqTo へ高さを変えながら、seconds 秒。delay は、鳴らし始めるまでの秒数（なければ、すぐ）
+function beep(freqFrom, freqTo, seconds, type, volume, delay) {
   try {
     if (!audioCtx) return;                                       // まだ一度も操作されていない
     if (audioCtx.state !== 'running' && !inGesture) return;      // 音が止まっているあいだの分は、ためこまない
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-    const t = audioCtx.currentTime;
+    const t = audioCtx.currentTime + (delay || 0);
     osc.type = type;
     osc.frequency.setValueAtTime(freqFrom, t);
     osc.frequency.linearRampToValueAtTime(freqTo, t + seconds);
@@ -289,7 +296,7 @@ function updateCrow() {
         // 影の場所：急降下が終わるころ、ちょうどカマキリの位置に着くところ
         crow.shadowWorld = scrollX + PLAYER_X + player.w / 2 + SPEED * (CROW_WARN_FRAMES + CROW_DIVE_FRAMES);
         beep(520, 380, 0.18, 'sawtooth', 0.07);                               // カー
-        setTimeout(() => beep(480, 330, 0.22, 'sawtooth', 0.07), 200);        // ーッ
+        beep(480, 330, 0.22, 'sawtooth', 0.07, 0.2);                          // ーッ（0.2秒あとに）
       }
       break;
     case 'warning':
@@ -393,7 +400,7 @@ function checkBlocks(prevHeadY) {
       // アイテムは、ブロックから少し前へ飛び出して、地面に落ちる
       items.push({ type: b.item, x: b.x + BLOCK_SIZE / 2 - ITEM_SIZE / 2 + 50, y: GROUND_Y - BLOCK_BOTTOM - BLOCK_SIZE, vy: -6 });
       beep(260, 170, 0.1, 'square', 0.08);                                   // コン
-      setTimeout(() => beep(600, 1000, 0.15, 'sine', 0.09), 90);             // ポン（アイテム出現）
+      beep(600, 1000, 0.15, 'sine', 0.09, 0.09);                             // ポン（アイテム出現）
     }
   }
 }
@@ -420,9 +427,11 @@ function updateItems() {
 }
 
 // ===== ゲームの状態 =====
-let gameState = 'playing';  // 'playing'（あそび中）か 'out'（アウトで止まっている）
-let outFrames = 0;          // アウトになってからの経過
-const RETRY_WAIT = 40;      // アウトの直後、「もういちど」を受け付けない時間（ジャンプの連打よけ）
+// 'title'（スタート画面）/ 'playing'（あそび中）/ 'out'（アウトで止まっている）/ 'clear'（ゴールして、結果の画面）
+let gameState = 'title';
+let stateFrames = 0;        // 止まっている画面（スタート・アウト・ゴール）になってからの経過
+const TITLE_WAIT = 15;      // スタート画面が出た直後、「スタート」を受け付けない時間（まちがって始まらないように）
+const RETRY_WAIT = 40;      // アウト・ゴールの直後、「もういちど」を受け付けない時間（ジャンプの連打よけ）
 
 let outScrollX = 0;         // アウトになったときの、草むらの上の位置（少し手前から再開するために覚えておく）
 const INVINCIBLE_FRAMES = 90;     // はじかれたあと・再開したあと、しばらく当たらない時間（約1.5秒）
@@ -432,7 +441,7 @@ const RESUME_BACK_FRAMES = 180;   // アウトのあと、何フレーム手前�
 
 function goOut() {
   gameState = 'out';
-  outFrames = 0;
+  stateFrames = 0;
   outScrollX = scrollX;
   beep(320, 110, 0.45, 'sawtooth', 0.07);   // ブー
 }
@@ -506,14 +515,25 @@ function restart() {
   gameState = 'playing';
 }
 
-// ジャンプ（地面にいるときだけ跳べる）。アウトで止まっているときは「もういちど」
+// スタート画面から、ゲームを始める
+function startGame() {
+  restart();
+  beep(523, 523, 0.1, 'triangle', 0.1);                                  // ピ
+  beep(784, 784, 0.2, 'triangle', 0.1, 0.11);                            // ポーン
+}
+
+// ジャンプ（地面か、空中であと1回）。止まっている画面では、「スタート」「もういちど」になる
 function jump() {
+  if (gameState === 'title') {            // スタート画面：ゲームを始める
+    if (stateFrames > TITLE_WAIT) startGame();
+    return;
+  }
   if (gameState === 'out') {              // アウトで止まっているとき：少し手前から再開
-    if (outFrames > RETRY_WAIT) resumeFromEarlier();
+    if (stateFrames > RETRY_WAIT) resumeFromEarlier();
     return;
   }
   if (gameState !== 'playing') {          // ゴールで止まっているとき：最初から
-    if (outFrames > RETRY_WAIT) restart();
+    if (stateFrames > RETRY_WAIT) restart();
     return;
   }
   if (player.onGround || player.jumps < MAX_JUMPS) {
@@ -555,7 +575,11 @@ window.addEventListener('pointerdown', (e) => {
 });
 
 function update() {
-  if (gameState !== 'playing') { outFrames++; return; }   // アウト・ゴールのあいだは止まる
+  if (gameState !== 'playing') {          // スタート・アウト・ゴールの画面では、進まない
+    stateFrames++;
+    if (gameState === 'title') frame++;   // スタート画面では、虫たちが、その場で動いて待っている
+    return;
+  }
   scrollX += SPEED;
   frame++;
   player.knockX *= 0.92;                                       // はじかれて下がった分が、だんだんもどる
@@ -594,9 +618,9 @@ function checkGoal() {
   const center = scrollX + player.x + player.w / 2;     // カマキリの、草むらの上の位置
   if (center >= GOAL_X + TREE_SIZE / 2 - 20) {
     gameState = 'clear';
-    outFrames = 0;
+    stateFrames = 0;
     // ファンファーレ（仮の音）
-    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, f, 0.2, 'triangle', 0.1), i * 150));
+    [523, 659, 784, 1047].forEach((f, i) => beep(f, f, 0.2, 'triangle', 0.1, i * 0.15));
   }
 }
 
@@ -656,7 +680,7 @@ function healByBug() {
   player.hp++;
   healAt = frame;
   effects.push({ type: 'heal', x: scrollX + player.x + player.w / 2, y: player.y - PLAYER_HEAD - 6, born: frame });
-  setTimeout(() => beep(1000, 1500, 0.2, 'sine', 0.09), 110);       // ぴろりん
+  beep(1000, 1500, 0.2, 'sine', 0.09, 0.11);                        // ぴろりん
 }
 
 function draw() {
@@ -692,6 +716,10 @@ function draw() {
   drawCrow();
   drawEffects(left, right);
   drawAura();
+  if (gameState === 'title') {            // スタート画面：大きなカマキリと、タイトル（走るカマキリとハートは、まだ出さない）
+    drawTitle();
+    return;
+  }
   const blink = frame < player.invUntil && Math.floor(frame / 4) % 2 === 0;   // はじかれた後は、点滅する
   if (blink) ctx.globalAlpha = 0.35;
   drawMantis(player.x, player.y, frame, !player.onGround);
@@ -699,6 +727,73 @@ function draw() {
   drawHearts();
   if (gameState === 'out') drawOut();
   if (gameState === 'clear') drawClear();
+}
+
+// スタート画面：タイトルと「スタート」。大きなカマキリが、左で待っている
+function drawTitle() {
+  // 大きなカマキリ（息をするように、少しのびちぢみする）
+  if (mantisImg.complete && mantisImg.naturalWidth > 0) {
+    const dw = 150, dh = dw * mantisImg.naturalHeight / mantisImg.naturalWidth;
+    const breath = Math.sin(stateFrames * 0.08);
+    ctx.save();
+    ctx.translate(118, GROUND_Y);
+    ctx.scale(-(1 - 0.015 * breath), 1 + 0.025 * breath);   // 絵は左向きなので、左右を反転して右向きにする
+    ctx.drawImage(mantisImg, -dw / 2, -dh, dw, dh);
+    ctx.restore();
+  }
+  // 文字とボタンは、画面の真ん中にそろえる
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const s = view.s, cx = canvas.width / 2;
+  const sy = (v) => view.oy + v * s;       // ゲームの高さ → 画面の高さ
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  const text = (str, size, y, fill, stroke, outline) => {
+    ctx.font = 'bold ' + Math.round(size * s) + 'px sans-serif';
+    ctx.lineWidth = outline * s;
+    ctx.strokeStyle = stroke;
+    ctx.fillStyle = fill;
+    ctx.strokeText(str, cx, sy(y));
+    ctx.fillText(str, cx, sy(y));
+  };
+  // タイトル
+  text('カマキリの', 44, 66, '#33691e', '#fff', 10);
+  text('くさむら ぼうけん', 78, 146, '#2e7d32', '#fff', 14);
+  // 「スタート」ボタン（ゆっくり、ふくらんだり、ちぢんだりする）
+  const pulse = 1 + 0.04 * Math.sin(stateFrames * 0.1);
+  const bw = 300 * s * pulse, bh = 88 * s * pulse, by = sy(262);
+  pillPath(cx - bw / 2, by - bh / 2 + 8 * s, bw, bh);     // 下にずらした、こい色（ボタンの厚み）
+  ctx.fillStyle = '#e65100';
+  ctx.fill();
+  pillPath(cx - bw / 2, by - bh / 2, bw, bh);
+  ctx.fillStyle = '#ff9800';
+  ctx.fill();
+  ctx.lineWidth = 5 * s;
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
+  ctx.font = 'bold ' + Math.round(50 * s * pulse) + 'px sans-serif';
+  ctx.lineWidth = 7 * s;
+  ctx.strokeStyle = '#e65100';
+  ctx.fillStyle = '#fff';
+  ctx.strokeText('スタート', cx, by);
+  ctx.fillText('スタート', cx, by);
+  // あそびかた（おとなが読む）
+  text('がめんを タッチ（スペースキー）で ジャンプ！', 22, 402, '#fff', '#1b5e20', 5);
+  text('ジャンプちゅうに もういちどで 2だんジャンプ', 20, 431, '#fff', '#1b5e20', 5);
+  ctx.restore();
+}
+
+// 両はしが丸いボタンの形を、道すじとして作る（塗るのは、使う側）
+function pillPath(x0, y0, bw, bh) {
+  const r = bh / 2;
+  ctx.beginPath();
+  ctx.moveTo(x0 + r, y0);
+  ctx.lineTo(x0 + bw - r, y0);
+  ctx.arc(x0 + bw - r, y0 + r, r, -Math.PI / 2, Math.PI / 2);
+  ctx.lineTo(x0 + r, y0 + bh);
+  ctx.arc(x0 + r, y0 + r, r, Math.PI / 2, Math.PI * 1.5);
+  ctx.closePath();
 }
 
 // ハート（のこりのはじかれてよい回数）。左上に3つ。はじかれると、1つずつ、からになる
@@ -1020,17 +1115,10 @@ function drawBugs(left, right) {
 
 // 「もういちど」ボタン（アウト・ゴールの画面で使う。止まった直後は出さない）
 function drawRetryButton(cx, by) {
-  if (outFrames <= RETRY_WAIT) return;
+  if (stateFrames <= RETRY_WAIT) return;
   const bw = 260 * view.s, bh = 70 * view.s;
   ctx.fillStyle = '#fff';
-  const r = bh / 2, x0 = cx - bw / 2, y0 = by - bh / 2;   // 両はしが丸いボタン
-  ctx.beginPath();
-  ctx.moveTo(x0 + r, y0);
-  ctx.lineTo(x0 + bw - r, y0);
-  ctx.arc(x0 + bw - r, y0 + r, r, -Math.PI / 2, Math.PI / 2);
-  ctx.lineTo(x0 + r, y0 + bh);
-  ctx.arc(x0 + r, y0 + r, r, Math.PI / 2, Math.PI * 1.5);
-  ctx.closePath();
+  pillPath(cx - bw / 2, by - bh / 2, bw, bh);
   ctx.fill();
   ctx.font = 'bold ' + Math.round(38 * view.s) + 'px sans-serif';
   ctx.fillStyle = '#2e7d32';
