@@ -48,12 +48,39 @@ function fitCanvas() {
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
-    ctx.imageSmoothingQuality = 'high';
   }
   const s = Math.min(w / W, h / H);
   view = { s, ox: (w - W * s) / 2, oy: (h - H * s) / 2 };
 }
 fitCanvas();
+
+// ===== 絵の下絵 =====
+// SVG の絵を、毎コマ、線から描き直すと重い（特に iPad の Safari）。
+// そこで、絵ごとに、いまの画面の細かさに合わせた大きさの「下絵」を1回だけ作っておき、毎コマは、それを貼るだけにする。
+// 画面の大きさ（倍率）が変わったら、作り直す。
+function sprite(img, w, h) {
+  if (!img.complete || img.naturalWidth === 0) return null;      // まだ読みこみ中
+  if (img.spriteScale !== view.s) { img.sprites = {}; img.spriteScale = view.s; }
+  const pw = Math.max(1, Math.round(w * view.s)), ph = Math.max(1, Math.round(h * view.s));
+  const key = pw + 'x' + ph;
+  let c = img.sprites[key];
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = pw;
+    c.height = ph;
+    const g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(img, 0, 0, pw, ph);
+    img.sprites[key] = c;
+  }
+  return c;
+}
+
+// 絵を、(x, y) に、幅 w・高さ h で貼る（まだ読みこみ中なら、何もしない）
+function drawSprite(img, x, y, w, h) {
+  const c = sprite(img, w, h);
+  if (c) ctx.drawImage(c, x, y, w, h);
+}
 
 // カマキリ
 const PLAYER_X = 100;        // カマキリの、画面での基本の位置（はじかれたときだけ、少し後ろへずれる）
@@ -369,20 +396,23 @@ let leafUntil = -1;                    // はねのはっぱの効果が終わ�
 function lightActive() { return frame < lightUntil; }
 function leafActive() { return frame < leafUntil; }
 
-// たたいたあとの茶色いブロック（元の絵に、茶色を重ねて作る）
-let usedBlockCanvas = null;
-function getUsedBlockImage() {
-  if (usedBlockCanvas) return usedBlockCanvas;
-  if (!blockImg.complete || blockImg.naturalWidth === 0) return null;
-  const c = document.createElement('canvas');
-  c.width = 160; c.height = 160;
-  const g = c.getContext('2d');
-  g.drawImage(blockImg, 0, 0, 160, 160);
-  g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = 'rgba(121, 85, 72, 0.82)';
-  g.fillRect(0, 0, 160, 160);
-  usedBlockCanvas = c;
-  return c;
+// たたいたあとの茶色いブロック（元の絵の下絵に、茶色を重ねて作る。下絵が作り直されたら、こちらも作り直す）
+let usedBlock = null;
+function usedBlockImage() {
+  const base = sprite(blockImg, BLOCK_SIZE, BLOCK_SIZE);
+  if (!base) return null;
+  if (!usedBlock || usedBlock.from !== base) {
+    const c = document.createElement('canvas');
+    c.width = base.width;
+    c.height = base.height;
+    const g = c.getContext('2d');
+    g.drawImage(base, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = 'rgba(121, 85, 72, 0.82)';
+    g.fillRect(0, 0, c.width, c.height);
+    usedBlock = { canvas: c, from: base };
+  }
+  return usedBlock.canvas;
 }
 
 // ジャンプで上がっているとき、頭がブロックの下の面を通りぬけようとしたら、たたいたことにする
@@ -747,13 +777,32 @@ function blob(cx, cy, rx, ry) {
   ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
 }
 
+// 空の絵（上のほうが、こい青。地面の近くは、うすい）。
+// 毎コマ色を計算すると重いので、画面の大きさが変わったときだけ作り直して、毎コマは、それを貼るだけにする。
+let skyCanvas = null;
+function skyImage() {
+  const groundPx = Math.ceil(view.oy + GROUND_Y * view.s);        // 地面の高さ（画面の画素で）
+  if (!skyCanvas || skyCanvas.width !== canvas.width || skyCanvas.height !== groundPx || skyCanvas.madeForOy !== view.oy) {
+    skyCanvas = document.createElement('canvas');
+    skyCanvas.width = canvas.width;
+    skyCanvas.height = groundPx;
+    skyCanvas.madeForOy = view.oy;
+    const g = skyCanvas.getContext('2d');
+    const sky = g.createLinearGradient(0, view.oy, 0, groundPx);
+    sky.addColorStop(0, '#9fd9ff');
+    sky.addColorStop(1, '#e3f5ff');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
+  }
+  return skyCanvas;
+}
+
 function drawBackground(left, right, top) {
-  // 空（上のほうが、こい青。地面の近くは、うすい）
-  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  sky.addColorStop(0, '#9fd9ff');
-  sky.addColorStop(1, '#e3f5ff');
-  ctx.fillStyle = sky;
-  ctx.fillRect(left, top, right - left, GROUND_Y - top);
+  // 空
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(skyImage(), 0, 0);
+  ctx.restore();
 
   // 雲（とてもゆっくり流れる）
   const cloudShift = scrollX * 0.06 + bgClock * 0.1;
@@ -814,7 +863,7 @@ function drawTitle() {
     ctx.save();
     ctx.translate(118, GROUND_Y);
     ctx.scale(-(1 - 0.015 * breath), 1 + 0.025 * breath);   // 絵は左向きなので、左右を反転して右向きにする
-    ctx.drawImage(mantisImg, -dw / 2, -dh, dw, dh);
+    drawSprite(mantisImg, -dw / 2, -dh, dw, dh);
     ctx.restore();
   }
   // 文字とボタンは、画面の真ん中にそろえる
@@ -908,7 +957,7 @@ function drawGoal(left, right) {
   if (!goalImg.complete || goalImg.naturalWidth === 0) return;
   const sx = GOAL_X - scrollX;
   if (sx > right + TREE_SIZE || sx < left - TREE_SIZE) return;
-  ctx.drawImage(goalImg, sx, GROUND_Y - TREE_SIZE * TREE_FOOT, TREE_SIZE, TREE_SIZE);
+  drawSprite(goalImg, sx, GROUND_Y - TREE_SIZE * TREE_FOOT, TREE_SIZE, TREE_SIZE);
 }
 
 // スズメを描く（画面に見えるものだけ）。やっつけたものは、小さくなって消える
@@ -927,7 +976,7 @@ function drawSparrows(left, right) {
     ctx.save();
     ctx.translate(screenX + SPARROW_SIZE / 2, footY);
     ctx.scale(scale, scale);
-    ctx.drawImage(sparrowImg, -SPARROW_SIZE / 2, -SPARROW_SIZE * 0.88, SPARROW_SIZE, SPARROW_SIZE);
+    drawSprite(sparrowImg, -SPARROW_SIZE / 2, -SPARROW_SIZE * 0.88, SPARROW_SIZE, SPARROW_SIZE);
     ctx.restore();
   }
 }
@@ -949,7 +998,7 @@ function drawCats() {
     ctx.save();
     ctx.translate(sx + CAT_SIZE / 2, GROUND_Y + bob);
     ctx.scale(scale, scale);
-    ctx.drawImage(catImg, -CAT_SIZE / 2, -CAT_SIZE * 0.88, CAT_SIZE, CAT_SIZE);
+    drawSprite(catImg, -CAT_SIZE / 2, -CAT_SIZE * 0.88, CAT_SIZE, CAT_SIZE);
     ctx.restore();
   }
 }
@@ -990,7 +1039,7 @@ function drawCrow() {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(faceLeft ? -scale : scale, scale);        // 絵は右向き。左へ向かうときは反転
-  ctx.drawImage(crowImg, -CROW_SIZE / 2, -CROW_SIZE * 0.88, CROW_SIZE, CROW_SIZE);
+  drawSprite(crowImg, -CROW_SIZE / 2, -CROW_SIZE * 0.88, CROW_SIZE, CROW_SIZE);
   ctx.restore();
 }
 
@@ -1079,8 +1128,8 @@ function drawBlocks(left, right) {
     if (sx > right + BLOCK_SIZE || sx < left - BLOCK_SIZE) continue;
     let bump = 0;
     if (b.hitAt >= 0 && frame - b.hitAt < 10) bump = -10 * Math.sin(Math.PI * (frame - b.hitAt) / 10);
-    const img = b.used ? (getUsedBlockImage() || blockImg) : blockImg;
-    ctx.drawImage(img, sx, GROUND_Y - BLOCK_BOTTOM - BLOCK_SIZE + bump, BLOCK_SIZE, BLOCK_SIZE);
+    const pic = b.used ? usedBlockImage() : sprite(blockImg, BLOCK_SIZE, BLOCK_SIZE);
+    if (pic) ctx.drawImage(pic, sx, GROUND_Y - BLOCK_BOTTOM - BLOCK_SIZE + bump, BLOCK_SIZE, BLOCK_SIZE);
   }
 }
 
@@ -1092,7 +1141,7 @@ function drawItems(left, right) {
     const img = itemImgs[it.type];
     if (!img.complete || img.naturalWidth === 0) continue;
     const bob = it.vy === 0 ? Math.sin(frame * 0.12) * 3 : 0;
-    ctx.drawImage(img, sx, it.y + bob, ITEM_SIZE, ITEM_SIZE);
+    drawSprite(img, sx, it.y + bob, ITEM_SIZE, ITEM_SIZE);
   }
 }
 
@@ -1186,7 +1235,7 @@ function drawBugs(left, right) {
     ctx.save();
     ctx.translate(screenX + BUG_SIZE / 2, footY);
     ctx.scale(scale, scale);
-    ctx.drawImage(img, -BUG_SIZE / 2, -BUG_SIZE * 0.88, BUG_SIZE, BUG_SIZE);
+    drawSprite(img, -BUG_SIZE / 2, -BUG_SIZE * 0.88, BUG_SIZE, BUG_SIZE);
     ctx.restore();
   }
 }
@@ -1248,7 +1297,7 @@ function drawMantis(px, py, t, air) {
   ctx.save();
   ctx.translate(px + player.w / 2, py + player.h + bob);
   ctx.scale(-1, 1);
-  ctx.drawImage(mantisImg, -dw / 2, -dh, dw, dh);
+  drawSprite(mantisImg, -dw / 2, -dh, dw, dh);
   ctx.restore();
 }
 
